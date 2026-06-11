@@ -1,0 +1,41 @@
+{
+  "name": "db-explorer-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for safely exploring and querying Oracle and SQL Server databases.",
+  "main": "build/server.js",
+  "bin": {
+    "db-explorer-mcp": "build/server.js",
+    "db-explorer-manager": "build/connectionsManager.js"
+  },
+  "files": [
+    "build/",
+    "README.md"
+  ],
+  "scripts": {
+    "prepack": "npm run build",
+    "build": "tsc --outDir build",
+    "start": "node build/server.js",
+    "manager": "node build/connectionsManager.js",
+    "test": "jest"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "commander": "^12.1.0",
+    "dotenv": "^17.4.2",
+    "mssql": "^12.5.5",
+    "node-sql-parser": "^5.4.0",
+    "oracledb": "^7.0.0"
+  },
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "@types/mssql": "^12.3.0",
+    "@types/node": "^25.9.3",
+    "jest": "^30.4.2",
+    "ts-jest": "^29.4.11",
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.3"
+  }
+}
