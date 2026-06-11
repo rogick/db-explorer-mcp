@@ -1,0 +1,40 @@
+# Dependências
+node_modules/
+.pnp
+.pnp.js
+
+# Compilação
+build/
+dist/
+
+# Logs e Cache
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm/
+
+# Variáveis de Ambiente e Configuração Local
+.env
+.env.test
+.env.production
+.env.local
+.db-explorer-config.json
+
+# IDEs e Editores
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Testes
+coverage/
+.nyc_output/
+
+# OS
+.DS_Store
+Thumbs.db
