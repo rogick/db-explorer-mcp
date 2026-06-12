@@ -5,12 +5,7 @@ echo "=================================================="
 echo " DB Explorer MCP - Instalador Global via NPM"
 echo "=================================================="
 
-# ---------------------------------------------------------
-# ATENÇÃO: Substitua 'seu-usuario/db-explorer-mcp' pelo caminho
-# real do seu repositório no GitHub.
-# Exemplo: REPO="github:rogick/db-explorer-mcp"
-# ---------------------------------------------------------
-REPO="github:seu-usuario/db-explorer-mcp"
+REPO="github:rogick/db-explorer-mcp"
 
 # 1. Instalação Global via NPM
 echo ">> Baixando, compilando e instalando pacote globalmente..."
