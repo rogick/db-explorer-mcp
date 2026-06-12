@@ -19,7 +19,50 @@ Sempre que cadastrar um banco, você pode atribuir um dos seguintes níveis de s
 - (Opcional, porém recomendado) [Bun](https://bun.sh/)
 - Para conexões Oracle avançadas: [Oracle Instant Client](https://www.oracle.com/database/technologies/instant-client.html) instalado em `~/oracle_client`.
 
-## Instalação
+## Instalação Rápida (direto do GitHub)
+Você pode instalar o `db-explorer-mcp` globalmente sem clonar o repositório. O build do TypeScript roda automaticamente (via script `prepare`) durante a instalação.
+
+```bash
+# npm
+npm install -g https://github.com/rogick/db-explorer-mcp
+
+# yarn
+yarn global add https://github.com/rogick/db-explorer-mcp
+
+# bun
+bun install -g github:rogick/db-explorer-mcp
+
+# npx (executa sem instalar globalmente)
+npx github:rogick/db-explorer-mcp
+```
+
+Após a instalação global, ficam disponíveis os binários:
+- `db-explorer-mcp` — inicia o servidor MCP.
+- `db-explorer-manager` — gerencia as conexões de banco (equivalente a `node build/connectionsManager.js`).
+
+> Para fixar uma versão/branch, anexe `#<tag-ou-branch>` à URL (ex: `...db-explorer-mcp#v1.0.0`).
+
+### Registrando o servidor no Claude (instalação global)
+O `install.sh` só roda no fluxo de clone. Instalando globalmente, registre o MCP manualmente apontando para o binário:
+```bash
+# escopo de usuário (vale para todos os projetos)
+claude mcp add db-explorer db-explorer-mcp --scope user
+
+# escopo de projeto
+claude mcp add db-explorer db-explorer-mcp
+```
+No Claude Desktop, adicione ao `claude_desktop_config.json`:
+```json
+{
+  "mcpServers": {
+    "db-explorer": {
+      "command": "db-explorer-mcp"
+    }
+  }
+}
+```
+
+## Instalação (a partir do clone)
 O projeto possui um script inteligente que irá compilar o TypeScript, gerenciar dependências e já integrá-lo diretamente com o seu Claude CLI/Desktop de forma interativa.
 1. Abra seu terminal na pasta do projeto.
 2. Dê permissão e rode o script:
@@ -32,30 +75,42 @@ chmod +x install.sh
 ## Gerenciando as Conexões de Banco de Dados
 A IA não tem permissão nem mecanismos para editar ou adicionar conexões de bancos. Isso é feito de forma isolada por você usando o CLI do `connectionsManager`.
 
+Os comandos abaixo têm duas formas, dependendo de como você instalou:
+- **Instalação global** (npm/yarn/bun `-g`): use o binário `db-explorer-manager`.
+- **A partir do clone**: use `node build/connectionsManager.js` na pasta do projeto.
+
 Para gerenciar, execute:
 ```bash
+# instalação global
+db-explorer-manager
+
+# a partir do clone
 node build/connectionsManager.js
 ```
 
 ### Adicionando um Oracle
 ```bash
-node build/connectionsManager.js add-oracle
+db-explorer-manager add-oracle          # instalação global
+node build/connectionsManager.js add-oracle   # a partir do clone
 ```
 *O script é 100% interativo.* Ele perguntará o Alias, se você deseja informar o Host separado ou DSN completo, seu usuário, senha e o nível de segurança. Depois, testará a conexão na mesma hora.
 
 ### Adicionando um SQL Server
 ```bash
-node build/connectionsManager.js add-sqlserver
+db-explorer-manager add-sqlserver          # instalação global
+node build/connectionsManager.js add-sqlserver   # a partir do clone
 ```
 
 ### Removendo uma conexão
 ```bash
-node build/connectionsManager.js remove "meu_alias"
+db-explorer-manager remove "meu_alias"          # instalação global
+node build/connectionsManager.js remove "meu_alias"   # a partir do clone
 ```
 
 ### Listando conexões
 ```bash
-node build/connectionsManager.js list
+db-explorer-manager list          # instalação global
+node build/connectionsManager.js list   # a partir do clone
 ```
 
 ## Testes
