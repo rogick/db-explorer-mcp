@@ -157,7 +157,7 @@ const GET_TABLE_SCHEMA_TOOL: Tool = {
 
 const EXECUTE_QUERY_TOOL: Tool = {
   name: "execute_query",
-  description: "Executa uma consulta SQL no banco especificado. Permite SELECT, CREATE, ALTER, INSERT, UPDATE. Bloqueia operações destrutivas como DROP, DELETE e TRUNCATE.",
+  description: "Executa uma consulta SQL no banco especificado. As operações permitidas dependem do modo de cada conexão: modo 'teste' permite TODAS as operações incluindo DROP, DELETE e TRUNCATE; modo 'normal' permite SELECT, CREATE, ALTER, INSERT, UPDATE mas bloqueia DROP, DELETE e TRUNCATE; modo 'readonly' permite apenas SELECT.",
   inputSchema: {
     type: "object",
     properties: {
@@ -171,7 +171,18 @@ const EXECUTE_QUERY_TOOL: Tool = {
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   const config = loadConfig();
   const conns = config.connections || {};
-  const dbsInfo = Object.keys(conns).map(alias => `'${alias}' (${conns[alias].type}, modo: ${conns[alias].mode || 'normal'})`).join(", ");
+  
+  const modeDescriptions: Record<string, string> = {
+    teste: "TODAS as operações permitidas, incluindo DROP, DELETE e TRUNCATE",
+    normal: "permite SELECT, CREATE, ALTER, INSERT, UPDATE; bloqueia DROP, DELETE, TRUNCATE",
+    readonly: "apenas SELECT",
+  };
+  
+  const dbsInfo = Object.keys(conns).map(alias => {
+    const mode = conns[alias].mode || 'normal';
+    const modeDesc = modeDescriptions[mode] || modeDescriptions.normal;
+    return `'${alias}' (${conns[alias].type}, modo: ${mode} — ${modeDesc})`;
+  }).join("; ");
   const availableStr = dbsInfo ? ` Bancos disponíveis: ${dbsInfo}.` : " Nenhum banco configurado.";
 
   const dynamicListTables = { ...LIST_TABLES_TOOL, description: LIST_TABLES_TOOL.description + availableStr };
