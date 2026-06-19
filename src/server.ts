@@ -13,6 +13,7 @@ import os from "os";
 // @ts-ignore
 import oracledb from "oracledb";
 import sql from "mssql";
+import { Parser } from "node-sql-parser";
 
 // Ativa o Thick mode para o oracledb se possível (suporte a 11g)
 try {
@@ -69,8 +70,8 @@ async function getConnection(alias: string): Promise<{ conn: any, dbType: string
       port: port,
       database: details.database,
       options: {
-        encrypt: false, // Default para conexões locais/antigas
-        trustServerCertificate: true,
+        encrypt: true,
+        trustServerCertificate: false,
       },
     });
     return { conn: pool, dbType };
@@ -85,26 +86,30 @@ export function isSafeQuery(query: string, mode: string): { isSafe: boolean; err
         return { isSafe: true, errorMsg: "" };
     }
 
-    const upperQuery = query.toUpperCase();
-    if (upperQuery.includes("DROP ") || upperQuery.includes("DELETE ") || upperQuery.includes("TRUNCATE ")) {
-        return { isSafe: false, errorMsg: "Operações destrutivas (DROP, DELETE, TRUNCATE) não são permitidas." };
-    }
-    
+    const parser = new Parser();
+    const ast = parser.astify(query);
+    const asts = Array.isArray(ast) ? ast : [ast];
+
     if (mode === "readonly") {
-        if (upperQuery.includes("INSERT ") || 
-            upperQuery.includes("UPDATE ") || 
-            upperQuery.includes("CREATE ") || 
-            upperQuery.includes("ALTER ") || 
-            upperQuery.includes("MERGE ") || 
-            upperQuery.includes("GRANT ") || 
-            upperQuery.includes("REVOKE ")) {
+        const hasNonSelect = asts.some((a: any) => a.type !== "select");
+        if (hasNonSelect) {
             return { isSafe: false, errorMsg: "Conexão em modo 'readonly'. Apenas consultas de leitura são permitidas." };
+        }
+    } else {
+        const hasDestructive = asts.some((a: any) => {
+            const type = a.type ? a.type.toLowerCase() : "";
+            return type === "drop" || type === "delete" || type === "truncate";
+        });
+        if (hasDestructive) {
+            return { isSafe: false, errorMsg: "Operações destrutivas (DROP, DELETE, TRUNCATE) não são permitidas." };
         }
     }
     
-    // Simplificando segurança com regex básica para evitar overhead de AST complexas em TypeScript
     return { isSafe: true, errorMsg: "" };
   } catch (e: any) {
+    if (mode === "teste") {
+        return { isSafe: true, errorMsg: "" };
+    }
     return { isSafe: false, errorMsg: `Erro de parsing: ${e.message}` };
   }
 }
@@ -163,6 +168,7 @@ const EXECUTE_QUERY_TOOL: Tool = {
     properties: {
       db_alias: { type: "string" },
       query: { type: "string" },
+      format: { type: "string", description: "Formato de saída: json, xml, llm, toon. Default: json" }
     },
     required: ["db_alias", "query"],
   },
@@ -243,10 +249,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       try {
         if (dbType === "oracle") {
-          const result = await conn.execute(`SELECT column_name, data_type FROM all_tab_columns WHERE table_name = '${table_name.toUpperCase()}'`);
+          const result = await conn.execute(
+            `SELECT column_name, data_type FROM all_tab_columns WHERE table_name = :tableName`,
+            { tableName: table_name.toUpperCase() }
+          );
           schema = result.rows.map((r: any) => ({ column: r[0], type: r[1] }));
         } else if (dbType === "sqlserver") {
-          const result = await conn.request().query(`SELECT column_name, data_type FROM information_schema.columns WHERE table_name = '${table_name}'`);
+          const result = await conn.request()
+            .input('tableName', sql.VarChar, table_name)
+            .query(`SELECT column_name, data_type FROM information_schema.columns WHERE table_name = @tableName`);
           schema = result.recordset.map((r: any) => ({ column: r.column_name, type: r.data_type }));
         }
       } finally {
@@ -262,6 +273,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     if (toolName === "execute_query") {
       const db_alias = args.db_alias as string;
       const query = args.query as string;
+      const format = (args.format as string) || "json";
 
       const config = loadConfig();
       const mode = config.connections?.[db_alias]?.mode || "normal";
@@ -278,7 +290,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       try {
         if (dbType === "oracle") {
-          const result = await conn.execute(query, [], { outFormat: oracledb.OUT_FORMAT_OBJECT, maxRows: 100, autoCommit: true });
+          const result = await conn.execute(query, [], { outFormat: oracledb.OUT_FORMAT_OBJECT, maxRows: 100, autoCommit: false, timeout: 30000 });
           if (result.rows) {
             results = result.rows;
           } else {
@@ -286,6 +298,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           }
         } else if (dbType === "sqlserver") {
           const request = conn.request();
+          request.timeout = 30000;
           const result = await request.query(query);
           if (result.recordsets && result.recordsets.length > 0) {
             results = result.recordsets[0].slice(0, 100);
@@ -308,8 +321,56 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return newRow;
       });
 
+      let formattedOutput = "";
+      if (format === "xml") {
+        formattedOutput = "<results>\n";
+        for (const row of stringifiedResults) {
+            formattedOutput += "  <row>\n";
+            for (const [key, val] of Object.entries(row)) {
+                const safeKey = key.replace(/[^a-zA-Z0-9_]/g, "_");
+                const safeVal = String(val).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                formattedOutput += `    <${safeKey}>${safeVal}</${safeKey}>\n`;
+            }
+            formattedOutput += "  </row>\n";
+        }
+        formattedOutput += "</results>";
+      } else if (format === "llm") {
+        if (stringifiedResults.length > 0) {
+            const keys = Object.keys(stringifiedResults[0]);
+            formattedOutput += "| " + keys.join(" | ") + " |\n";
+            formattedOutput += "| " + keys.map(() => "---").join(" | ") + " |\n";
+            for (const row of stringifiedResults) {
+                formattedOutput += "| " + keys.map(k => String(row[k]).replace(/\\|/g, "\\\\|").replace(/\\n/g, " ")).join(" | ") + " |\n";
+            }
+        } else {
+            formattedOutput = "Nenhum resultado retornado.";
+        }
+      } else if (format === "toon") {
+        if (stringifiedResults.length === 0) {
+            formattedOutput = "results[0]{}:\n";
+        } else {
+            const keys = Object.keys(stringifiedResults[0]);
+            formattedOutput = `results[${stringifiedResults.length}]{${keys.join(',')}}:\n`;
+            for (const row of stringifiedResults) {
+                const values = keys.map(k => {
+                    const val = row[k];
+                    if (val === null || val === undefined) return "";
+                    const str = String(val);
+                    if (str.includes(',') || str.includes('\\n') || str.includes('"')) {
+                        return `"${str.replace(/"/g, '""')}"`;
+                    }
+                    return str;
+                });
+                formattedOutput += `  ${values.join(',')}\n`;
+            }
+            formattedOutput = formattedOutput.trimEnd();
+        }
+      } else {
+        formattedOutput = JSON.stringify(stringifiedResults, null, 2);
+      }
+
       return {
-        content: [{ type: "text", text: JSON.stringify(stringifiedResults, null, 2) }],
+        content: [{ type: "text", text: formattedOutput }],
       };
     }
 

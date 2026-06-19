@@ -45,6 +45,11 @@ function loadConfig() {
 
 function saveConfig(config: any) {
   fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 4));
+  try {
+    fs.chmodSync(CONFIG_PATH, 0o600);
+  } catch (err) {
+    // Ignora erro no Windows
+  }
 }
 
 const program = new Command();
@@ -95,6 +100,12 @@ program
     while (!mode || !["readonly", "normal", "teste"].includes(mode)) {
         const m = await ask("Modo (readonly, normal, teste) [normal]: ");
         mode = m.trim() === "" ? "normal" : m.trim();
+    }
+
+    const isLocal = dsn.toLowerCase().includes("localhost") || dsn.includes("127.0.0.1") || dsn.includes("::1");
+    if ((mode === "normal" || mode === "teste") && !isLocal) {
+        console.log(`\n❌ Segurança: O modo '${mode}' só é permitido para servidores locais (localhost ou 127.0.0.1). Para bases remotas, utilize o modo 'readonly'.`);
+        process.exit(1);
     }
 
     console.log("\nTestando a conexão...");
@@ -154,6 +165,12 @@ program
         mode = m.trim() === "" ? "normal" : m.trim();
     }
 
+    const isLocal = server.toLowerCase().includes("localhost") || server.includes("127.0.0.1") || server.includes("::1");
+    if ((mode === "normal" || mode === "teste") && !isLocal) {
+        console.log(`\n❌ Segurança: O modo '${mode}' só é permitido para servidores locais (localhost ou 127.0.0.1). Para bases remotas, utilize o modo 'readonly'.`);
+        process.exit(1);
+    }
+
     console.log("\nTestando a conexão...");
     let success = false;
     try {
@@ -162,7 +179,7 @@ program
         const port = parts[1] ? parseInt(parts[1], 10) : 1433;
         const pool = await sql.connect({
             user, password, server: srv, port, database,
-            options: { encrypt: false, trustServerCertificate: true }
+            options: { encrypt: true, trustServerCertificate: false }
         });
         await pool.close();
         success = true;

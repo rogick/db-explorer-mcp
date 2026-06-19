@@ -23,7 +23,8 @@ describe("isSafeQuery Unit Tests", () => {
         it("deve bloquear operações destrutivas (DROP)", () => {
             const result = isSafeQuery("DROP TABLE usuarios", "readonly");
             expect(result.isSafe).toBe(false);
-            expect(result.errorMsg).toContain("Operações destrutivas");
+            // No modo readonly o parser agora rejeita qualquer coisa que não seja SELECT
+            expect(result.errorMsg).toContain("leitura");
         });
     });
 
