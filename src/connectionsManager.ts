@@ -345,6 +345,112 @@ program
   });
 
 program
+  .command("edit")
+  .description("Editar uma conexão existente")
+  .argument("<alias>", "Nome amigável da conexão")
+  .action(async (alias) => {
+    const config = loadConfig();
+    const conn = config.connections && config.connections[alias];
+    if (!conn) {
+      console.log(`❌ Conexão '${alias}' não encontrada.`);
+      process.exit(1);
+    }
+
+    console.log(`Editando conexão '${alias}' do tipo '${conn.type}'`);
+    console.log("Pressione Enter para manter o valor atual.\\n");
+
+    if (conn.type === "oracle") {
+        let user = await ask(`Usuário [${conn.user}]: `);
+        conn.user = user.trim() === "" ? conn.user : user.trim();
+
+        let password = await ask(`Senha [${conn.password ? '***' : ''}]: `);
+        conn.password = password.trim() === "" ? conn.password : password.trim();
+
+        let dsn = await ask(`DSN [${conn.dsn}]: `);
+        conn.dsn = dsn.trim() === "" ? conn.dsn : dsn.trim();
+    } else if (conn.type === "sqlserver") {
+        let server = await ask(`Servidor [${conn.server}]: `);
+        conn.server = server.trim() === "" ? conn.server : server.trim();
+
+        let database = await ask(`Database [${conn.database}]: `);
+        conn.database = database.trim() === "" ? conn.database : database.trim();
+
+        let user = await ask(`Usuário [${conn.user}]: `);
+        conn.user = user.trim() === "" ? conn.user : user.trim();
+
+        let password = await ask(`Senha [${conn.password ? '***' : ''}]: `);
+        conn.password = password.trim() === "" ? conn.password : password.trim();
+    } else if (conn.type === "postgres" || conn.type === "mysql") {
+        let host = await ask(`Host [${conn.host}]: `);
+        conn.host = host.trim() === "" ? conn.host : host.trim();
+
+        let portStr = await ask(`Porta [${conn.port}]: `);
+        conn.port = portStr.trim() === "" ? conn.port : parseInt(portStr.trim(), 10);
+
+        let database = await ask(`Database [${conn.database}]: `);
+        conn.database = database.trim() === "" ? conn.database : database.trim();
+
+        let user = await ask(`Usuário [${conn.user}]: `);
+        conn.user = user.trim() === "" ? conn.user : user.trim();
+
+        let password = await ask(`Senha [${conn.password ? '***' : ''}]: `);
+        conn.password = password.trim() === "" ? conn.password : password.trim();
+    }
+
+    let mode = await ask(`Modo (readonly, normal, teste) [${conn.mode || 'normal'}]: `);
+    conn.mode = mode.trim() === "" ? (conn.mode || "normal") : mode.trim();
+
+    // Verify local restriction for non-readonly modes
+    const addressStr = conn.dsn || conn.server || conn.host || "";
+    const isLocal = addressStr.toLowerCase().includes("localhost") || addressStr.includes("127.0.0.1") || addressStr.includes("::1");
+    if ((conn.mode === "normal" || conn.mode === "teste") && !isLocal) {
+        console.log(`\\n❌ Segurança: O modo '${conn.mode}' só é permitido para servidores locais (localhost ou 127.0.0.1). Para bases remotas, utilize o modo 'readonly'.`);
+        process.exit(1);
+    }
+
+    console.log("\\nTestando a conexão atualizada...");
+    let success = false;
+    try {
+        if (conn.type === "oracle") {
+            const oraconn = await oracledb.getConnection({ user: conn.user, password: conn.password, connectString: conn.dsn });
+            await oraconn.close();
+        } else if (conn.type === "sqlserver") {
+            const parts = conn.server.split(":");
+            const srv = parts[0];
+            const port = parts[1] ? parseInt(parts[1], 10) : 1433;
+            const pool = await sql.connect({
+                user: conn.user, password: conn.password, server: srv, port, database: conn.database,
+                options: { encrypt: true, trustServerCertificate: false }
+            });
+            await pool.close();
+        } else if (conn.type === "postgres") {
+            const pgconn = new Client({ host: conn.host, port: conn.port, database: conn.database, user: conn.user, password: conn.password });
+            await pgconn.connect();
+            await pgconn.end();
+        } else if (conn.type === "mysql") {
+            const myconn = await mysql.createConnection({ host: conn.host, port: conn.port, database: conn.database, user: conn.user, password: conn.password });
+            await myconn.end();
+        }
+        success = true;
+        console.log("✅ Conexão bem-sucedida!");
+    } catch (err: any) {
+        console.log("❌ Falha na conexão: " + err.message);
+    }
+
+    if (!success) {
+        const ans = await ask("\\nDeseja salvar a conexão assim mesmo? (s/n) [n]: ");
+        if (ans.toLowerCase() !== 's') {
+            console.log("Operação cancelada.");
+            process.exit(0);
+        }
+    }
+
+    saveConfig(config);
+    console.log(`✅ Conexão '${alias}' atualizada com sucesso!`);
+    process.exit(0);
+  });
+
+program
   .command("list")
   .description("Listar as conexões configuradas")
   .action(() => {

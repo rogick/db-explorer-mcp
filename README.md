@@ -115,6 +115,12 @@ db-explorer-manager add-mysql          # instalação global
 node build/connectionsManager.js add-mysql   # a partir do clone
 ```
 
+### Editando uma conexão
+```bash
+db-explorer-manager edit "meu_alias"          # instalação global
+node build/connectionsManager.js edit "meu_alias"   # a partir do clone
+```
+
 ### Removendo uma conexão
 ```bash
 db-explorer-manager remove "meu_alias"          # instalação global

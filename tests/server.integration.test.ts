@@ -23,6 +23,28 @@ jest.mock("mssql", () => ({
         close: jest.fn<any>().mockResolvedValue(undefined)
     })
 }));
+jest.mock("pg", () => {
+    return {
+        Client: jest.fn<any>().mockImplementation(() => {
+            return {
+                connect: jest.fn<any>().mockResolvedValue(undefined),
+                query: jest.fn<any>().mockResolvedValue({
+                    rows: [{ tablename: "pg_table_1" }]
+                }),
+                end: jest.fn<any>().mockResolvedValue(undefined)
+            };
+        })
+    };
+});
+jest.mock("mysql2/promise", () => {
+    return {
+        createConnection: jest.fn<any>().mockResolvedValue({
+            query: jest.fn<any>().mockResolvedValue([[{ Tables_in_db: "mysql_table_1" }]]),
+            execute: jest.fn<any>().mockResolvedValue([[{ COLUMN_NAME: "id", DATA_TYPE: "int" }]]),
+            end: jest.fn<any>().mockResolvedValue(undefined)
+        })
+    };
+});
 
 describe("MCP Server Integration Tests", () => {
     beforeEach(() => {
@@ -46,6 +68,24 @@ describe("MCP Server Integration Tests", () => {
                     database: "master",
                     user: "sa",
                     password: "123"
+                },
+                "test_pg": {
+                    type: "postgres",
+                    mode: "normal",
+                    host: "localhost",
+                    port: 5432,
+                    database: "postgres",
+                    user: "postgres",
+                    password: "123"
+                },
+                "test_mysql": {
+                    type: "mysql",
+                    mode: "teste",
+                    host: "localhost",
+                    port: 3306,
+                    database: "mysql",
+                    user: "root",
+                    password: "123"
                 }
             }
         }));
@@ -63,5 +103,8 @@ describe("MCP Server Integration Tests", () => {
         expect(fs.existsSync).toBeDefined();
         const config = JSON.parse((fs.readFileSync as jest.Mock)() as string);
         expect(config.connections["test_oracle"].type).toBe("oracle");
+        expect(config.connections["test_sql"].type).toBe("sqlserver");
+        expect(config.connections["test_pg"].type).toBe("postgres");
+        expect(config.connections["test_mysql"].type).toBe("mysql");
     });
 });
