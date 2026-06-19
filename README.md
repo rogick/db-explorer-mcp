@@ -1,6 +1,6 @@
 # DB Explorer MCP
 
-Este é um servidor MCP (Model Context Protocol) escrito em TypeScript e Node.js para permitir que o Claude (ou outras IAs compatíveis) acesse e consulte bancos de dados de forma segura. Atualmente, possui suporte para os bancos **Oracle** e **SQL Server**.
+Este é um servidor MCP (Model Context Protocol) escrito em TypeScript e Node.js para permitir que o Claude (ou outras IAs compatíveis) acesse e consulte bancos de dados de forma segura. Atualmente, possui suporte para os bancos **Oracle**, **SQL Server**, **PostgreSQL** e **MySQL**.
 
 ## Funcionalidades
 - **4 Tools Disponíveis:** `list_databases`, `list_tables`, `get_table_schema`, `execute_query`
@@ -101,6 +101,18 @@ node build/connectionsManager.js add-oracle   # a partir do clone
 ```bash
 db-explorer-manager add-sqlserver          # instalação global
 node build/connectionsManager.js add-sqlserver   # a partir do clone
+```
+
+### Adicionando um PostgreSQL
+```bash
+db-explorer-manager add-postgres          # instalação global
+node build/connectionsManager.js add-postgres   # a partir do clone
+```
+
+### Adicionando um MySQL
+```bash
+db-explorer-manager add-mysql          # instalação global
+node build/connectionsManager.js add-mysql   # a partir do clone
 ```
 
 ### Removendo uma conexão

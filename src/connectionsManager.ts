@@ -8,6 +8,8 @@ import readline from "readline";
 // @ts-ignore
 import oracledb from "oracledb";
 import sql from "mssql";
+import { Client } from "pg";
+import mysql from "mysql2/promise";
 
 const rl = readline.createInterface({
   input: process.stdin,
@@ -200,6 +202,145 @@ program
     config.connections[alias] = { type: "sqlserver", mode, server, database, user, password };
     saveConfig(config);
     console.log(`✅ Conexão SQL Server '${alias}' salva com sucesso!`);
+    process.exit(0);
+  });
+
+program
+  .command("add-postgres")
+  .description("Adicionar uma conexão PostgreSQL")
+  .argument("[alias]", "Nome amigável da conexão")
+  .option("-h, --host <host>", "Host do banco de dados")
+  .option("-p, --port <port>", "Porta do banco de dados")
+  .option("-d, --database <database>", "Nome do banco de dados")
+  .option("-u, --user <user>", "Usuário do banco")
+  .option("-pw, --password <password>", "Senha do banco")
+  .option("-m, --mode <mode>", "Modo de acesso: readonly, normal ou teste")
+  .action(async (aliasArg, options) => {
+    let alias = aliasArg;
+    while (!alias) alias = await ask("Alias (nome da conexão): ");
+    
+    let host = options.host;
+    while (!host) host = await ask("Host [localhost]: ");
+    host = host.trim() === "" ? "localhost" : host.trim();
+
+    let portStr = options.port;
+    while (!portStr) portStr = await ask("Porta [5432]: ");
+    const port = portStr.trim() === "" ? 5432 : parseInt(portStr.trim(), 10);
+
+    let database = options.database;
+    while (!database) database = await ask("Database: ");
+    
+    let user = options.user;
+    while (!user) user = await ask("Usuário: ");
+    
+    let password = options.password;
+    while (!password) password = await ask("Senha: ");
+    
+    let mode = options.mode;
+    while (!mode || !["readonly", "normal", "teste"].includes(mode)) {
+        const m = await ask("Modo (readonly, normal, teste) [normal]: ");
+        mode = m.trim() === "" ? "normal" : m.trim();
+    }
+
+    const isLocal = host.toLowerCase().includes("localhost") || host.includes("127.0.0.1") || host.includes("::1");
+    if ((mode === "normal" || mode === "teste") && !isLocal) {
+        console.log(`\n❌ Segurança: O modo '${mode}' só é permitido para servidores locais (localhost ou 127.0.0.1). Para bases remotas, utilize o modo 'readonly'.`);
+        process.exit(1);
+    }
+
+    console.log("\nTestando a conexão...");
+    let success = false;
+    try {
+        const conn = new Client({ host, port, database, user, password });
+        await conn.connect();
+        await conn.end();
+        success = true;
+        console.log("✅ Conexão bem-sucedida!");
+    } catch (err: any) {
+        console.log("❌ Falha na conexão: " + err.message);
+    }
+
+    if (!success) {
+        const ans = await ask("\nDeseja salvar a conexão assim mesmo? (s/n) [n]: ");
+        if (ans.toLowerCase() !== 's') {
+            console.log("Operação cancelada.");
+            process.exit(0);
+        }
+    }
+
+    const config = loadConfig();
+    config.connections[alias] = { type: "postgres", mode, host, port, database, user, password };
+    saveConfig(config);
+    console.log(`✅ Conexão PostgreSQL '${alias}' salva com sucesso!`);
+    process.exit(0);
+  });
+
+program
+  .command("add-mysql")
+  .description("Adicionar uma conexão MySQL")
+  .argument("[alias]", "Nome amigável da conexão")
+  .option("-h, --host <host>", "Host do banco de dados")
+  .option("-p, --port <port>", "Porta do banco de dados")
+  .option("-d, --database <database>", "Nome do banco de dados")
+  .option("-u, --user <user>", "Usuário do banco")
+  .option("-pw, --password <password>", "Senha do banco")
+  .option("-m, --mode <mode>", "Modo de acesso: readonly, normal ou teste")
+  .action(async (aliasArg, options) => {
+    let alias = aliasArg;
+    while (!alias) alias = await ask("Alias (nome da conexão): ");
+    
+    let host = options.host;
+    while (!host) host = await ask("Host [localhost]: ");
+    host = host.trim() === "" ? "localhost" : host.trim();
+
+    let portStr = options.port;
+    while (!portStr) portStr = await ask("Porta [3306]: ");
+    const port = portStr.trim() === "" ? 3306 : parseInt(portStr.trim(), 10);
+
+    let database = options.database;
+    while (!database) database = await ask("Database: ");
+    
+    let user = options.user;
+    while (!user) user = await ask("Usuário: ");
+    
+    let password = options.password;
+    while (!password) password = await ask("Senha: ");
+    
+    let mode = options.mode;
+    while (!mode || !["readonly", "normal", "teste"].includes(mode)) {
+        const m = await ask("Modo (readonly, normal, teste) [normal]: ");
+        mode = m.trim() === "" ? "normal" : m.trim();
+    }
+
+    const isLocal = host.toLowerCase().includes("localhost") || host.includes("127.0.0.1") || host.includes("::1");
+    if ((mode === "normal" || mode === "teste") && !isLocal) {
+        console.log(`\n❌ Segurança: O modo '${mode}' só é permitido para servidores locais (localhost ou 127.0.0.1). Para bases remotas, utilize o modo 'readonly'.`);
+        process.exit(1);
+    }
+
+    console.log("\nTestando a conexão...");
+    let success = false;
+    try {
+        const conn = await mysql.createConnection({ host, port, database, user, password });
+        await conn.end();
+        success = true;
+        console.log("✅ Conexão bem-sucedida!");
+    } catch (err: any) {
+        console.log("❌ Falha na conexão: " + err.message);
+    }
+
+    if (!success) {
+        const ans = await ask("\nDeseja salvar a conexão assim mesmo? (s/n) [n]: ");
+        if (ans.toLowerCase() !== 's') {
+            console.log("Operação cancelada.");
+            process.exit(0);
+        }
+    }
+
+    const config = loadConfig();
+    config.connections[alias] = { type: "mysql", mode, host, port, database, user, password };
+    saveConfig(config);
+    console.log(`✅ Conexão MySQL '${alias}' salva com sucesso!`);
     process.exit(0);
   });
 

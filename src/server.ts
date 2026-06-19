@@ -13,6 +13,8 @@ import os from "os";
 // @ts-ignore
 import oracledb from "oracledb";
 import sql from "mssql";
+import { Client } from "pg";
+import mysql from "mysql2/promise";
 import { Parser } from "node-sql-parser";
 
 // Ativa o Thick mode para o oracledb se possível (suporte a 11g)
@@ -75,6 +77,25 @@ async function getConnection(alias: string): Promise<{ conn: any, dbType: string
       },
     });
     return { conn: pool, dbType };
+  } else if (dbType === "postgres") {
+    const conn = new Client({
+      host: details.host,
+      port: details.port,
+      database: details.database,
+      user: details.user,
+      password: details.password,
+    });
+    await conn.connect();
+    return { conn, dbType };
+  } else if (dbType === "mysql") {
+    const conn = await mysql.createConnection({
+      host: details.host,
+      port: details.port,
+      user: details.user,
+      password: details.password,
+      database: details.database,
+    });
+    return { conn, dbType };
   } else {
     throw new Error(`Tipo de banco '${dbType}' não suportado.`);
   }
@@ -230,10 +251,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         } else if (dbType === "sqlserver") {
           const result = await conn.request().query("SELECT table_name FROM information_schema.tables WHERE table_type = 'BASE TABLE'");
           tables = result.recordset.map((r: any) => r.table_name);
+        } else if (dbType === "postgres") {
+          const result = await conn.query("SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname != 'pg_catalog' AND schemaname != 'information_schema'");
+          tables = result.rows.map((r: any) => r.tablename);
+        } else if (dbType === "mysql") {
+          const [rows] = await conn.query("SHOW FULL TABLES WHERE Table_type = 'BASE TABLE'");
+          tables = (rows as any[]).map((r: any) => Object.values(r)[0] as string);
         }
       } finally {
         if (dbType === "oracle") await conn.close();
         else if (dbType === "sqlserver") await conn.close();
+        else if (dbType === "postgres") await conn.end();
+        else if (dbType === "mysql") await conn.end();
       }
 
       return {
@@ -259,10 +288,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             .input('tableName', sql.VarChar, table_name)
             .query(`SELECT column_name, data_type FROM information_schema.columns WHERE table_name = @tableName`);
           schema = result.recordset.map((r: any) => ({ column: r.column_name, type: r.data_type }));
+        } else if (dbType === "postgres") {
+          const result = await conn.query(`SELECT column_name, data_type FROM information_schema.columns WHERE table_name = $1`, [table_name]);
+          schema = result.rows.map((r: any) => ({ column: r.column_name, type: r.data_type }));
+        } else if (dbType === "mysql") {
+          const [rows] = await conn.execute(`SELECT column_name, data_type FROM information_schema.columns WHERE table_name = ? AND table_schema = DATABASE()`, [table_name]);
+          schema = (rows as any[]).map((r: any) => ({ column: r.COLUMN_NAME, type: r.DATA_TYPE }));
         }
       } finally {
         if (dbType === "oracle") await conn.close();
         else if (dbType === "sqlserver") await conn.close();
+        else if (dbType === "postgres") await conn.end();
+        else if (dbType === "mysql") await conn.end();
       }
 
       return {
@@ -305,12 +342,32 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           } else {
             results = [{ status: "success", rowsAffected: result.rowsAffected[0] || 0 }];
           }
+        } else if (dbType === "postgres") {
+          const result = await conn.query(query);
+          if (Array.isArray(result)) {
+             const last = result[result.length - 1];
+             if (last.rows) results = last.rows.slice(0, 100);
+             else results = [{ status: "success", rowCount: last.rowCount || 0 }];
+          } else if (result.rows) {
+             results = result.rows.slice(0, 100);
+          } else {
+             results = [{ status: "success", rowCount: result.rowCount || 0 }];
+          }
+        } else if (dbType === "mysql") {
+          const [rows] = await conn.query(query);
+          if (Array.isArray(rows)) {
+             results = rows.slice(0, 100);
+          } else {
+             results = [{ status: "success", affectedRows: (rows as any).affectedRows || 0 }];
+          }
         }
       } catch (err: any) {
         results = [{ error: err.message }];
       } finally {
         if (dbType === "oracle") await conn.close();
         else if (dbType === "sqlserver") await conn.close();
+        else if (dbType === "postgres") await conn.end();
+        else if (dbType === "mysql") await conn.end();
       }
 
       const stringifiedResults = results.map((row: any) => {
