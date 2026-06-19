@@ -4,13 +4,15 @@ Este é um servidor MCP (Model Context Protocol) escrito em TypeScript e Node.js
 
 ## Funcionalidades
 - **4 Tools Disponíveis:** `list_databases`, `list_tables`, `get_table_schema`, `execute_query`
+- **Múltiplos Formatos de Saída:** A tool `execute_query` suporta formatação em `json`, `xml`, `llm` (markdown tables) e `toon` (formato denso otimizado para IA).
 - **Descrições Dinâmicas:** A IA é capaz de ver os bancos e modos disponíveis antes de qualquer chamada.
 - **Gerenciador de Conexões Interativo:** Adicione senhas e bancos via terminal de forma segura sem mexer em arquivos JSON e totalmente fora do alcance da IA.
-- **Modos de Segurança:** Defina exatamente o que a IA pode fazer em cada banco.
+- **Modos de Segurança Avançados:** Defina exatamente o que a IA pode fazer em cada banco. Protegido por um parser de AST SQL que evita bypasses com comentários ou múltiplas linhas.
+- **Conexões Remotas Restritas:** Regras para impedir acesso a bancos arbitrários não cadastrados.
 
 ### Modos de Conexão
 Sempre que cadastrar um banco, você pode atribuir um dos seguintes níveis de segurança:
-1. **`readonly`**: O mais restrito. A IA só pode realizar instruções passivas (`SELECT`, descrições, etc.). Qualquer comando do tipo `INSERT`, `UPDATE`, `CREATE`, `ALTER` e afins é imediatamente bloqueado antes de chegar ao banco.
+1. **`readonly`**: O mais restrito. A IA só pode realizar instruções passivas (`SELECT`, descrições, etc.). O servidor analisa a Abstract Syntax Tree (AST) da query SQL para garantir que não há bypasses ocultos com comentários, quebras de linha ou instruções múltiplas.
 2. **`normal` (Padrão)**: Permite que a IA crie estruturas (`CREATE`/`ALTER`) e manipule dados (`INSERT`/`UPDATE`), sendo muito útil para tarefas de dev. **Bloqueia comandos destrutivos** como `DROP`, `DELETE` e `TRUNCATE`.
 3. **`teste`**: Totalmente irrestrito. Pula todas as verificações de segurança do servidor MCP e permite qualquer comando. Use por sua conta e risco para automações em ambientes controlados descartáveis.
 
