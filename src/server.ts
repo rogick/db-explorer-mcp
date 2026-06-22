@@ -32,9 +32,9 @@ try {
   // Ignora erros e continua no modo thin ou falha na conexão se thick for requerido
 }
 
-const CONFIG_PATH = process.env.DB_EXPLORER_CONFIG_PATH 
-    ? path.resolve(process.env.DB_EXPLORER_CONFIG_PATH) 
-    : path.join(os.homedir(), ".db-explorer-config.json");
+const CONFIG_PATH = process.env.DB_EXPLORER_CONFIG_PATH
+  ? path.resolve(process.env.DB_EXPLORER_CONFIG_PATH)
+  : path.join(os.homedir(), ".db-explorer-config.json");
 
 
 function loadConfig(): any {
@@ -62,20 +62,30 @@ async function getConnection(alias: string): Promise<{ conn: any, dbType: string
     });
     return { conn, dbType };
   } else if (dbType === "sqlserver") {
-    const parts = details.server.split(":");
-    const server = parts[0];
-    const port = parts[1] ? parseInt(parts[1], 10) : 1433;
-    const pool = await sql.connect({
+    let host = details.host;
+    let port = details.port;
+
+    if (!host && details.server) {
+      const parts = details.server.split(":");
+      host = parts[0];
+      port = parts[1] ? parseInt(parts[1], 10) : 1433;
+    }
+    if (!port) port = 1433;
+
+    const connectConfig: any = {
       user: details.user,
       password: details.password,
-      server: server,
+      server: host,
       port: port,
       database: details.database,
       options: {
         encrypt: true,
-        trustServerCertificate: false,
+        trustServerCertificate: true,
       },
-    });
+    };
+    if (details.instance) connectConfig.options.instanceName = details.instance;
+
+    const pool = await sql.connect(connectConfig);
     return { conn: pool, dbType };
   } else if (dbType === "postgres") {
     const conn = new Client({
@@ -104,7 +114,7 @@ async function getConnection(alias: string): Promise<{ conn: any, dbType: string
 export function isSafeQuery(query: string, mode: string): { isSafe: boolean; errorMsg: string } {
   try {
     if (mode === "teste") {
-        return { isSafe: true, errorMsg: "" };
+      return { isSafe: true, errorMsg: "" };
     }
 
     const parser = new Parser();
@@ -112,24 +122,24 @@ export function isSafeQuery(query: string, mode: string): { isSafe: boolean; err
     const asts = Array.isArray(ast) ? ast : [ast];
 
     if (mode === "readonly") {
-        const hasNonSelect = asts.some((a: any) => a.type !== "select");
-        if (hasNonSelect) {
-            return { isSafe: false, errorMsg: "Conexão em modo 'readonly'. Apenas consultas de leitura são permitidas." };
-        }
+      const hasNonSelect = asts.some((a: any) => a.type !== "select");
+      if (hasNonSelect) {
+        return { isSafe: false, errorMsg: "Conexão em modo 'readonly'. Apenas consultas de leitura são permitidas." };
+      }
     } else {
-        const hasDestructive = asts.some((a: any) => {
-            const type = a.type ? a.type.toLowerCase() : "";
-            return type === "drop" || type === "delete" || type === "truncate";
-        });
-        if (hasDestructive) {
-            return { isSafe: false, errorMsg: "Operações destrutivas (DROP, DELETE, TRUNCATE) não são permitidas." };
-        }
+      const hasDestructive = asts.some((a: any) => {
+        const type = a.type ? a.type.toLowerCase() : "";
+        return type === "drop" || type === "delete" || type === "truncate";
+      });
+      if (hasDestructive) {
+        return { isSafe: false, errorMsg: "Operações destrutivas (DROP, DELETE, TRUNCATE) não são permitidas." };
+      }
     }
-    
+
     return { isSafe: true, errorMsg: "" };
   } catch (e: any) {
     if (mode === "teste") {
-        return { isSafe: true, errorMsg: "" };
+      return { isSafe: true, errorMsg: "" };
     }
     return { isSafe: false, errorMsg: `Erro de parsing: ${e.message}` };
   }
@@ -198,13 +208,13 @@ const EXECUTE_QUERY_TOOL: Tool = {
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   const config = loadConfig();
   const conns = config.connections || {};
-  
+
   const modeDescriptions: Record<string, string> = {
     teste: "TODAS as operações permitidas, incluindo DROP, DELETE e TRUNCATE",
     normal: "permite SELECT, CREATE, ALTER, INSERT, UPDATE; bloqueia DROP, DELETE, TRUNCATE",
     readonly: "apenas SELECT",
   };
-  
+
   const dbsInfo = Object.keys(conns).map(alias => {
     const mode = conns[alias].mode || 'normal';
     const modeDesc = modeDescriptions[mode] || modeDescriptions.normal;
@@ -230,9 +240,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const config = loadConfig();
       const conns = config.connections || {};
       const dbs = Object.keys(conns).map(alias => ({
-          alias: alias,
-          type: conns[alias].type,
-          mode: conns[alias].mode || "normal"
+        alias: alias,
+        type: conns[alias].type,
+        mode: conns[alias].mode || "normal"
       }));
       return {
         content: [{ type: "text", text: JSON.stringify(dbs, null, 2) }],
@@ -345,20 +355,20 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         } else if (dbType === "postgres") {
           const result = await conn.query(query);
           if (Array.isArray(result)) {
-             const last = result[result.length - 1];
-             if (last.rows) results = last.rows.slice(0, 100);
-             else results = [{ status: "success", rowCount: last.rowCount || 0 }];
+            const last = result[result.length - 1];
+            if (last.rows) results = last.rows.slice(0, 100);
+            else results = [{ status: "success", rowCount: last.rowCount || 0 }];
           } else if (result.rows) {
-             results = result.rows.slice(0, 100);
+            results = result.rows.slice(0, 100);
           } else {
-             results = [{ status: "success", rowCount: result.rowCount || 0 }];
+            results = [{ status: "success", rowCount: result.rowCount || 0 }];
           }
         } else if (dbType === "mysql") {
           const [rows] = await conn.query(query);
           if (Array.isArray(rows)) {
-             results = rows.slice(0, 100);
+            results = rows.slice(0, 100);
           } else {
-             results = [{ status: "success", affectedRows: (rows as any).affectedRows || 0 }];
+            results = [{ status: "success", affectedRows: (rows as any).affectedRows || 0 }];
           }
         }
       } catch (err: any) {
@@ -382,45 +392,45 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       if (format === "xml") {
         formattedOutput = "<results>\n";
         for (const row of stringifiedResults) {
-            formattedOutput += "  <row>\n";
-            for (const [key, val] of Object.entries(row)) {
-                const safeKey = key.replace(/[^a-zA-Z0-9_]/g, "_");
-                const safeVal = String(val).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-                formattedOutput += `    <${safeKey}>${safeVal}</${safeKey}>\n`;
-            }
-            formattedOutput += "  </row>\n";
+          formattedOutput += "  <row>\n";
+          for (const [key, val] of Object.entries(row)) {
+            const safeKey = key.replace(/[^a-zA-Z0-9_]/g, "_");
+            const safeVal = String(val).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+            formattedOutput += `    <${safeKey}>${safeVal}</${safeKey}>\n`;
+          }
+          formattedOutput += "  </row>\n";
         }
         formattedOutput += "</results>";
       } else if (format === "llm") {
         if (stringifiedResults.length > 0) {
-            const keys = Object.keys(stringifiedResults[0]);
-            formattedOutput += "| " + keys.join(" | ") + " |\n";
-            formattedOutput += "| " + keys.map(() => "---").join(" | ") + " |\n";
-            for (const row of stringifiedResults) {
-                formattedOutput += "| " + keys.map(k => String(row[k]).replace(/\\|/g, "\\\\|").replace(/\\n/g, " ")).join(" | ") + " |\n";
-            }
+          const keys = Object.keys(stringifiedResults[0]);
+          formattedOutput += "| " + keys.join(" | ") + " |\n";
+          formattedOutput += "| " + keys.map(() => "---").join(" | ") + " |\n";
+          for (const row of stringifiedResults) {
+            formattedOutput += "| " + keys.map(k => String(row[k]).replace(/\\|/g, "\\\\|").replace(/\\n/g, " ")).join(" | ") + " |\n";
+          }
         } else {
-            formattedOutput = "Nenhum resultado retornado.";
+          formattedOutput = "Nenhum resultado retornado.";
         }
       } else if (format === "toon") {
         if (stringifiedResults.length === 0) {
-            formattedOutput = "results[0]{}:\n";
+          formattedOutput = "results[0]{}:\n";
         } else {
-            const keys = Object.keys(stringifiedResults[0]);
-            formattedOutput = `results[${stringifiedResults.length}]{${keys.join(',')}}:\n`;
-            for (const row of stringifiedResults) {
-                const values = keys.map(k => {
-                    const val = row[k];
-                    if (val === null || val === undefined) return "";
-                    const str = String(val);
-                    if (str.includes(',') || str.includes('\\n') || str.includes('"')) {
-                        return `"${str.replace(/"/g, '""')}"`;
-                    }
-                    return str;
-                });
-                formattedOutput += `  ${values.join(',')}\n`;
-            }
-            formattedOutput = formattedOutput.trimEnd();
+          const keys = Object.keys(stringifiedResults[0]);
+          formattedOutput = `results[${stringifiedResults.length}]{${keys.join(',')}}:\n`;
+          for (const row of stringifiedResults) {
+            const values = keys.map(k => {
+              const val = row[k];
+              if (val === null || val === undefined) return "";
+              const str = String(val);
+              if (str.includes(',') || str.includes('\\n') || str.includes('"')) {
+                return `"${str.replace(/"/g, '""')}"`;
+              }
+              return str;
+            });
+            formattedOutput += `  ${values.join(',')}\n`;
+          }
+          formattedOutput = formattedOutput.trimEnd();
         }
       } else {
         formattedOutput = JSON.stringify(stringifiedResults, null, 2);
