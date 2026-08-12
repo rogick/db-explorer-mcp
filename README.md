@@ -1,146 +1,129 @@
-# DB Explorer MCP
+# DB Explorer MCP (Go)
 
-Este é um servidor MCP (Model Context Protocol) escrito em TypeScript e Node.js para permitir que o Claude (ou outras IAs compatíveis) acesse e consulte bancos de dados de forma segura. Atualmente, possui suporte para os bancos **Oracle**, **SQL Server**, **PostgreSQL** e **MySQL**.
+Este é um servidor MCP (Model Context Protocol) de alto desempenho escrito em **Go** para permitir que o Claude (ou outras IAs compatíveis) acesse e consulte bancos de dados de forma segura. Possui suporte nativo para os bancos **Oracle**, **SQL Server**, **PostgreSQL** e **MySQL**.
+
+> 🚀 **Drivers Nativos Puros (Zero Client Dependency)**: Migrado para Go! Não requer a instalação de clients de banco locais (como Oracle Instant Client, OCI DLLs ou Node.js runtime). Compila para um único binário estático e autossuficiente.
+
+---
 
 ## Funcionalidades
 - **4 Tools Disponíveis:** `list_databases`, `list_tables`, `get_table_schema`, `execute_query`
 - **Múltiplos Formatos de Saída:** A tool `execute_query` suporta formatação em `json`, `xml`, `llm` (markdown tables) e `toon` (formato denso otimizado para IA).
 - **Descrições Dinâmicas:** A IA é capaz de ver os bancos e modos disponíveis antes de qualquer chamada.
 - **Gerenciador de Conexões Interativo:** Adicione senhas e bancos via terminal de forma segura sem mexer em arquivos JSON e totalmente fora do alcance da IA.
-- **Modos de Segurança Avançados:** Defina exatamente o que a IA pode fazer em cada banco. Protegido por um parser de AST SQL que evita bypasses com comentários ou múltiplas linhas.
+- **Modos de Segurança Avançados:** Defina exatamente o que a IA pode fazer em cada banco. Protegido por um parser de AST/tokens SQL que evita bypasses com comentários ou múltiplas linhas.
 - **Conexões Remotas Restritas:** Regras para impedir acesso a bancos arbitrários não cadastrados.
+- **Compatibilidade Multiplataforma:** Binários nativos estáticos para **Windows** (x64), **Linux** e **macOS** (x64/ARM64).
+
+---
 
 ### Modos de Conexão
 Sempre que cadastrar um banco, você pode atribuir um dos seguintes níveis de segurança:
-1. **`readonly`**: O mais restrito. A IA só pode realizar instruções passivas (`SELECT`, descrições, etc.). O servidor analisa a Abstract Syntax Tree (AST) da query SQL para garantir que não há bypasses ocultos com comentários, quebras de linha ou instruções múltiplas.
+1. **`readonly`**: O mais restrito. A IA só pode realizar instruções passivas (`SELECT`, descrições, etc.). O servidor analisa a consulta SQL para garantir que não há bypasses ocultos com comentários, quebras de linha ou instruções mutativas encadeadas.
 2. **`normal` (Padrão)**: Permite que a IA crie estruturas (`CREATE`/`ALTER`) e manipule dados (`INSERT`/`UPDATE`), sendo muito útil para tarefas de dev. **Bloqueia comandos destrutivos** como `DROP`, `DELETE` e `TRUNCATE`.
 3. **`teste`**: Totalmente irrestrito. Pula todas as verificações de segurança do servidor MCP e permite qualquer comando. Use por sua conta e risco para automações em ambientes controlados descartáveis.
 
-## Requisitos
-- [Node.js](https://nodejs.org/en/) >= 18
-- (Opcional, porém recomendado) [Bun](https://bun.sh/)
-- Para conexões Oracle avançadas: [Oracle Instant Client](https://www.oracle.com/database/technologies/instant-client.html) instalado em `~/oracle_client`.
+---
 
-## Instalação Rápida (direto do GitHub)
-Você pode instalar o `db-explorer-mcp` globalmente sem clonar o repositório. O build do TypeScript roda automaticamente (via script `prepare`) durante a instalação.
+## Requisitos de Build
+- [Go](https://go.dev/) >= 1.22
 
-```bash
-# npm
-npm install -g https://github.com/rogick/db-explorer-mcp
+---
 
-# yarn
-yarn global add https://github.com/rogick/db-explorer-mcp
+## Compilação e Instalação
 
-# bun
-bun install -g github:rogick/db-explorer-mcp
-
-# npx (executa sem instalar globalmente)
-npx github:rogick/db-explorer-mcp
+### No Windows (PowerShell)
+```powershell
+.\install.ps1
 ```
 
-Após a instalação global, ficam disponíveis os binários:
-- `db-explorer-mcp` — inicia o servidor MCP.
-- `db-explorer-manager` — gerencia as conexões de banco (equivalente a `node build/connectionsManager.js`).
-
-> Para fixar uma versão/branch, anexe `#<tag-ou-branch>` à URL (ex: `...db-explorer-mcp#v1.0.0`).
-
-### Registrando o servidor no Claude (instalação global)
-O `install.sh` só roda no fluxo de clone. Instalando globalmente, registre o MCP manualmente apontando para o binário:
+### No Linux / macOS (Bash)
 ```bash
-# escopo de usuário (vale para todos os projetos)
-claude mcp add db-explorer db-explorer-mcp --scope user
-
-# escopo de projeto
-claude mcp add db-explorer db-explorer-mcp
+chmod +x install.sh
+./install.sh
 ```
-No Claude Desktop, adicione ao `claude_desktop_config.json`:
+
+Os scripts compilam e instalam os binários na pasta compartilhada `~/.local/bin` (ou `%USERPROFILE%\.local\bin` no Windows) e também na pasta local `build/`. Além disso, perguntam se você deseja registrar o MCP no Claude CLI e fornecem as instruções de configuração para o `claude_desktop_config.json`.
+
+---
+
+## Registrando no Claude Desktop
+
+No **Claude Desktop**, adicione a configuração abaixo:
+- **Linux/macOS:** `~/.config/Claude/claude_desktop_config.json`
+- **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+
 ```json
 {
   "mcpServers": {
     "db-explorer": {
-      "command": "db-explorer-mcp"
+      "command": "C:\\Users\\seu_usuario\\.local\\bin\\db-explorer-mcp.exe"
     }
   }
 }
 ```
 
-## Instalação (a partir do clone)
-O projeto possui um script inteligente que irá compilar o TypeScript, gerenciar dependências e já integrá-lo diretamente com o seu Claude CLI/Desktop de forma interativa.
-1. Abra seu terminal na pasta do projeto.
-2. Dê permissão e rode o script:
+---
+
+## Gerenciando Conexões com `db-explorer-manager`
+
+Para gerenciar as conexões cadastradas sem que a IA tenha acesso:
+
 ```bash
-chmod +x install.sh
-./install.sh
-```
-3. O script perguntará se você deseja instalá-lo no escopo global de Usuário (integrando com `~/.claude/`) ou num escopo de projeto específico.
+# Windows
+.\build\db-explorer-manager.exe
 
-## Gerenciando as Conexões de Banco de Dados
-A IA não tem permissão nem mecanismos para editar ou adicionar conexões de bancos. Isso é feito de forma isolada por você usando o CLI do `connectionsManager`.
-
-Os comandos abaixo têm duas formas, dependendo de como você instalou:
-- **Instalação global** (npm/yarn/bun `-g`): use o binário `db-explorer-manager`.
-- **A partir do clone**: use `node build/connectionsManager.js` na pasta do projeto.
-
-Para gerenciar, execute:
-```bash
-# instalação global
-db-explorer-manager
-
-# a partir do clone
-node build/connectionsManager.js
+# Linux / macOS
+./build/db-explorer-manager
 ```
 
-### Adicionando um Oracle
+### Adicionando um Oracle (Zero Instant Client!)
 ```bash
-db-explorer-manager add-oracle          # instalação global
-node build/connectionsManager.js add-oracle   # a partir do clone
+./build/db-explorer-manager add-oracle
 ```
-*O script é 100% interativo.* Ele perguntará o Alias, se você deseja informar o Host separado ou DSN completo, seu usuário, senha e o nível de segurança. Depois, testará a conexão na mesma hora.
+*O script é 100% interativo.* Funciona com Oracle 10g, 11g, 12c, 19c, 21c e 23c através do driver nativo `go-ora`.
 
 ### Adicionando um SQL Server
 ```bash
-db-explorer-manager add-sqlserver          # instalação global
-node build/connectionsManager.js add-sqlserver   # a partir do clone
+./build/db-explorer-manager add-sqlserver
 ```
 
 ### Adicionando um PostgreSQL
 ```bash
-db-explorer-manager add-postgres          # instalação global
-node build/connectionsManager.js add-postgres   # a partir do clone
+./build/db-explorer-manager add-postgres
 ```
 
 ### Adicionando um MySQL
 ```bash
-db-explorer-manager add-mysql          # instalação global
-node build/connectionsManager.js add-mysql   # a partir do clone
-```
-
-### Editando uma conexão
-```bash
-db-explorer-manager edit "meu_alias"          # instalação global
-node build/connectionsManager.js edit "meu_alias"   # a partir do clone
-```
-
-### Removendo uma conexão
-```bash
-db-explorer-manager remove "meu_alias"          # instalação global
-node build/connectionsManager.js remove "meu_alias"   # a partir do clone
+./build/db-explorer-manager add-mysql
 ```
 
 ### Listando conexões
 ```bash
-db-explorer-manager list          # instalação global
-node build/connectionsManager.js list   # a partir do clone
+./build/db-explorer-manager list
 ```
 
-## Testes
-O projeto possui uma cobertura completa de testes unitários (`isSafeQuery`) e de integração usando o **Jest**. Para rodá-los:
+### Removendo uma conexão
 ```bash
-npm run test
+./build/db-explorer-manager remove "meu_alias"
 ```
+
+---
+
+## Testes Automatizados
+O projeto conta com testes unitários cobrindo parser de segurança SQL, formatadores e validação de configurações. Para rodar:
+
+```bash
+go test ./... -v
+```
+
+---
 
 ## Estrutura Técnica
-- `src/server.ts`: Código principal do Servidor MCP responsável por receber chamadas.
-- `src/connectionsManager.ts`: CLI interativo para manipular as credenciais de banco.
-- `tests/`: Suíte de validação de código.
-- `~/.db-explorer-config.json`: Local físico seguro onde as credenciais ficam salvas (criado automaticamente pelo CLI).
+- `cmd/db-explorer-mcp/main.go`: Ponto de entrada do Servidor MCP stdio.
+- `cmd/db-explorer-manager/main.go`: CLI interativo para gerenciar credenciais.
+- `pkg/config/`: Leitura e gravação segura do arquivo `%USERPROFILE%\.db-explorer-config.json`.
+- `pkg/db/`: Abstração de banco com drivers 100% nativos em Go (`go-ora/v2`, `go-mssqldb`, `pgx/v5`, `go-sql-driver/mysql`).
+- `pkg/security/`: Parser de AST/tokens SQL para validação de segurança (`readonly`, `normal`, `teste`).
+- `pkg/formatters/`: Conversores de resultado (`json`, `xml`, `llm`, `toon`).
+- `pkg/mcp/`: Manipuladores de requisições do protocolo MCP.
