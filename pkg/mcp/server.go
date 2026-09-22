@@ -140,7 +140,7 @@ func (s *Server) handleListTables(ctx context.Context, req mcp.CallToolRequest) 
 		return mcp.NewToolResultError(fmt.Sprintf("Erro ao carregar configuração: %v", err)), nil
 	}
 
-	connDetails, exists := cfg.Connections[dbAlias]
+	connDetails, _, exists := cfg.GetConnection(dbAlias)
 	if !exists {
 		return mcp.NewToolResultError(fmt.Sprintf("Conexão '%s' não encontrada.", dbAlias)), nil
 	}
@@ -173,7 +173,7 @@ func (s *Server) handleGetTableSchema(ctx context.Context, req mcp.CallToolReque
 		return mcp.NewToolResultError(fmt.Sprintf("Erro ao carregar configuração: %v", err)), nil
 	}
 
-	connDetails, exists := cfg.Connections[dbAlias]
+	connDetails, _, exists := cfg.GetConnection(dbAlias)
 	if !exists {
 		return mcp.NewToolResultError(fmt.Sprintf("Conexão '%s' não encontrada.", dbAlias)), nil
 	}
@@ -211,7 +211,7 @@ func (s *Server) handleExecuteQuery(ctx context.Context, req mcp.CallToolRequest
 		return mcp.NewToolResultError(fmt.Sprintf("Erro ao carregar configuração: %v", err)), nil
 	}
 
-	connDetails, exists := cfg.Connections[dbAlias]
+	connDetails, _, exists := cfg.GetConnection(dbAlias)
 	if !exists {
 		return mcp.NewToolResultError(fmt.Sprintf("Conexão '%s' não encontrada.", dbAlias)), nil
 	}

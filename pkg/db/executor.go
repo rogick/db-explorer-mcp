@@ -12,7 +12,7 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	_ "github.com/microsoft/go-mssqldb"
-	_ "github.com/sijms/go-ora/v2"
+	go_ora "github.com/sijms/go-ora/v2"
 
 	"github.com/rogick/db-explorer-mcp/pkg/config"
 )
@@ -132,6 +132,21 @@ func (e *Executor) OpenConnection(details config.ConnectionDetails) (*sql.DB, st
 		return nil, dbType, fmt.Errorf("falha ao abrir driver %s: %w", dbType, err)
 	}
 
+	if dbType == "oracle" {
+		nlsParams := []struct{ key, value string }{
+			{"NLS_DATE_FORMAT", "'DD/MM/YYYY HH24:MI:SS'"},
+			{"NLS_TIMESTAMP_FORMAT", "'YYYY-MM-DD HH24:MI:SS.FF'"},
+			{"NLS_NUMERIC_CHARACTERS", "'.,'"},
+			{"NLS_LANGUAGE", "'BRAZILIAN PORTUGUESE'"},
+		}
+		for _, p := range nlsParams {
+			if err := go_ora.AddSessionParam(db, p.key, p.value); err != nil {
+				db.Close()
+				return nil, dbType, fmt.Errorf("falha ao definir parâmetro NLS %s: %w", p.key, err)
+			}
+		}
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -244,7 +259,7 @@ func (e *Executor) ExecuteQuery(db *sql.DB, query string) ([]map[string]interfac
 		// Tenta executar como comando sem retorno (INSERT, UPDATE, DELETE, DDL)
 		res, execErr := db.ExecContext(ctx, query)
 		if execErr != nil {
-			return nil, nil, fmt.Errorf("erro ao executar query: %w", err)
+			return nil, nil, fmt.Errorf("erro ao executar query: %w", execErr)
 		}
 
 		rowsAffected, _ := res.RowsAffected()

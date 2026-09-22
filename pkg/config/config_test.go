@@ -46,3 +46,42 @@ func TestValidateModeHost(t *testing.T) {
 		t.Errorf("Esperado nil para readonly em host remoto, obteve: %v", err)
 	}
 }
+
+func TestGetConnectionCaseInsensitive(t *testing.T) {
+	cfg := &Config{
+		Connections: map[string]ConnectionDetails{
+			"SOFTRH_GUI_REMOTO": {Type: "oracle", Mode: "readonly"},
+			"modelosql-teste":   {Type: "sqlserver", Mode: "teste"},
+		},
+	}
+
+	// 1. Busca exata
+	conn, actualKey, found := cfg.GetConnection("SOFTRH_GUI_REMOTO")
+	if !found || actualKey != "SOFTRH_GUI_REMOTO" || conn.Type != "oracle" {
+		t.Errorf("Esperado encontrar 'SOFTRH_GUI_REMOTO', obteve found=%v, key=%s", found, actualKey)
+	}
+
+	// 2. Busca em minúsculas
+	conn, actualKey, found = cfg.GetConnection("softrh_gui_remoto")
+	if !found || actualKey != "SOFTRH_GUI_REMOTO" || conn.Type != "oracle" {
+		t.Errorf("Esperado encontrar 'SOFTRH_GUI_REMOTO' buscando por minúsculas, obteve found=%v, key=%s", found, actualKey)
+	}
+
+	// 3. Busca em maiúsculas
+	conn, actualKey, found = cfg.GetConnection("MODELOSQL-TESTE")
+	if !found || actualKey != "modelosql-teste" || conn.Type != "sqlserver" {
+		t.Errorf("Esperado encontrar 'modelosql-teste' buscando por maiúsculas, obteve found=%v, key=%s", found, actualKey)
+	}
+
+	// 4. Busca com case misto
+	conn, actualKey, found = cfg.GetConnection("Modelosql-Teste")
+	if !found || actualKey != "modelosql-teste" || conn.Type != "sqlserver" {
+		t.Errorf("Esperado encontrar 'modelosql-teste' buscando por mixed case, obteve found=%v, key=%s", found, actualKey)
+	}
+
+	// 5. Inexistente
+	_, _, found = cfg.GetConnection("nao_existe")
+	if found {
+		t.Errorf("Esperado não encontrar 'nao_existe', mas retornou found=true")
+	}
+}

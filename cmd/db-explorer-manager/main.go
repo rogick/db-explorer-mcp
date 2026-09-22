@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -55,6 +56,62 @@ func testConnectionAndPromptSave(connDetails config.ConnectionDetails) bool {
 	sqlDB.Close()
 	fmt.Println("✅ Conexão bem-sucedida!")
 	return true
+}
+
+func printConnectionDetails(w io.Writer, alias string, conn config.ConnectionDetails) {
+	mode := conn.Mode
+	if mode == "" {
+		mode = "normal"
+	}
+	pwdDisplay := "********"
+	if conn.Password == "" {
+		pwdDisplay = "(não definida)"
+	}
+
+	fmt.Fprintf(w, "Detalhes da conexão '%s':\n", alias)
+	fmt.Fprintf(w, "  Tipo:      %s\n", conn.Type)
+	fmt.Fprintf(w, "  Modo:      %s\n", mode)
+	if conn.User != "" {
+		fmt.Fprintf(w, "  Usuário:   %s\n", conn.User)
+	}
+	fmt.Fprintf(w, "  Senha:     %s\n", pwdDisplay)
+
+	switch conn.Type {
+	case "oracle":
+		if conn.DSN != "" {
+			fmt.Fprintf(w, "  DSN:       %s\n", conn.DSN)
+		}
+	case "sqlserver":
+		host := conn.Host
+		if host == "" && conn.Server != "" {
+			host = conn.Server
+		}
+		if host != "" {
+			fmt.Fprintf(w, "  Host:      %s\n", host)
+		}
+		if conn.Port > 0 {
+			fmt.Fprintf(w, "  Porta:     %d\n", conn.Port)
+		}
+		if conn.Instance != "" {
+			fmt.Fprintf(w, "  Instância: %s\n", conn.Instance)
+		}
+		if conn.Database != "" {
+			fmt.Fprintf(w, "  Database:  %s\n", conn.Database)
+		}
+	default:
+		if conn.Host != "" {
+			fmt.Fprintf(w, "  Host:      %s\n", conn.Host)
+		}
+		if conn.Port > 0 {
+			fmt.Fprintf(w, "  Porta:     %d\n", conn.Port)
+		}
+		if conn.Database != "" {
+			fmt.Fprintf(w, "  Database:  %s\n", conn.Database)
+		}
+		if conn.DSN != "" {
+			fmt.Fprintf(w, "  DSN:       %s\n", conn.DSN)
+		}
+	}
 }
 
 func main() {
@@ -406,13 +463,13 @@ func main() {
 				os.Exit(1)
 			}
 
-			conn, exists := cfg.Connections[alias]
+			conn, actualAlias, exists := cfg.GetConnection(alias)
 			if !exists {
 				fmt.Printf("❌ Conexão '%s' não encontrada.\n", alias)
 				os.Exit(1)
 			}
 
-			fmt.Printf("Editando conexão '%s' do tipo '%s'\n", alias, conn.Type)
+			fmt.Printf("Editando conexão '%s' do tipo '%s'\n", actualAlias, conn.Type)
 			fmt.Println("Pressione Enter para manter o valor atual.")
 
 			if conn.Type == "oracle" {
@@ -489,25 +546,37 @@ func main() {
 				os.Exit(0)
 			}
 
-			cfg.Connections[alias] = conn
+			cfg.Connections[actualAlias] = conn
 			if err := config.SaveConfig(cfg); err != nil {
 				fmt.Printf("❌ Erro ao salvar conexão: %v\n", err)
 				os.Exit(1)
 			}
 
-			fmt.Printf("✅ Conexão '%s' atualizada com sucesso!\n", alias)
+			fmt.Printf("✅ Conexão '%s' atualizada com sucesso!\n", actualAlias)
 		},
 	}
 
-	// list
+	// list [alias]
 	cmdList := &cobra.Command{
-		Use:   "list",
-		Short: "Listar as conexões configuradas",
+		Use:   "list [alias]",
+		Short: "Listar as conexões configuradas ou exibir detalhes de uma específica",
+		Args:  cobra.MaximumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
 			cfg, err := config.LoadConfig()
 			if err != nil {
 				fmt.Printf("❌ Erro ao carregar configurações: %v\n", err)
 				os.Exit(1)
+			}
+
+			if len(args) > 0 {
+				alias := args[0]
+				conn, actualAlias, exists := cfg.GetConnection(alias)
+				if !exists {
+					fmt.Printf("❌ Conexão '%s' não encontrada.\n", alias)
+					os.Exit(1)
+				}
+				printConnectionDetails(os.Stdout, actualAlias, conn)
+				return
 			}
 
 			if len(cfg.Connections) == 0 {
@@ -525,6 +594,41 @@ func main() {
 		},
 	}
 
+	// show [alias]
+	cmdShow := &cobra.Command{
+		Use:     "show [alias]",
+		Aliases: []string{"info", "describe", "details", "get", "view"},
+		Short:   "Exibir os detalhes de uma conexão",
+		Args:    cobra.MaximumNArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			alias := ""
+			if len(args) > 0 {
+				alias = args[0]
+			} else {
+				alias = ask("Alias (nome da conexão)", "")
+			}
+
+			if alias == "" {
+				fmt.Println("❌ Nenhum alias informado.")
+				os.Exit(1)
+			}
+
+			cfg, err := config.LoadConfig()
+			if err != nil {
+				fmt.Printf("❌ Erro ao carregar configurações: %v\n", err)
+				os.Exit(1)
+			}
+
+			conn, actualAlias, exists := cfg.GetConnection(alias)
+			if !exists {
+				fmt.Printf("❌ Conexão '%s' não encontrada.\n", alias)
+				os.Exit(1)
+			}
+
+			printConnectionDetails(os.Stdout, actualAlias, conn)
+		},
+	}
+
 	// remove <alias>
 	cmdRemove := &cobra.Command{
 		Use:   "remove [alias]",
@@ -538,20 +642,20 @@ func main() {
 				os.Exit(1)
 			}
 
-			if _, exists := cfg.Connections[alias]; exists {
-				delete(cfg.Connections, alias)
+			if _, actualAlias, exists := cfg.GetConnection(alias); exists {
+				delete(cfg.Connections, actualAlias)
 				if err := config.SaveConfig(cfg); err != nil {
 					fmt.Printf("❌ Erro ao remover conexão: %v\n", err)
 					os.Exit(1)
 				}
-				fmt.Printf("✅ Conexão '%s' removida.\n", alias)
+				fmt.Printf("✅ Conexão '%s' removida.\n", actualAlias)
 			} else {
 				fmt.Printf("❌ Conexão '%s' não encontrada.\n", alias)
 			}
 		},
 	}
 
-	rootCmd.AddCommand(cmdAddOracle, cmdAddSqlServer, cmdAddPostgres, cmdAddMysql, cmdEdit, cmdList, cmdRemove)
+	rootCmd.AddCommand(cmdAddOracle, cmdAddSqlServer, cmdAddPostgres, cmdAddMysql, cmdEdit, cmdList, cmdShow, cmdRemove)
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)

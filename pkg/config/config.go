@@ -25,6 +25,25 @@ type Config struct {
 	Connections map[string]ConnectionDetails `json:"connections"`
 }
 
+// GetConnection busca uma conexão pelo alias de modo case-insensitive.
+// Retorna os detalhes da conexão, o alias cadastrado (com a grafia original) e se foi encontrada.
+func (c *Config) GetConnection(alias string) (ConnectionDetails, string, bool) {
+	if c.Connections == nil {
+		return ConnectionDetails{}, "", false
+	}
+	// 1. Tenta correspondência exata primeiro
+	if conn, exists := c.Connections[alias]; exists {
+		return conn, alias, true
+	}
+	// 2. Tenta correspondência case-insensitive
+	for k, conn := range c.Connections {
+		if strings.EqualFold(k, alias) {
+			return conn, k, true
+		}
+	}
+	return ConnectionDetails{}, "", false
+}
+
 func GetConfigPath() (string, error) {
 	if envPath := os.Getenv("DB_EXPLORER_CONFIG_PATH"); envPath != "" {
 		return filepath.Abs(envPath)

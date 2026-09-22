@@ -103,6 +103,15 @@ Para gerenciar as conexões cadastradas sem que a IA tenha acesso:
 ./build/db-explorer-manager list
 ```
 
+### Exibindo detalhes de uma conexão
+```bash
+./build/db-explorer-manager show "meu_alias"
+# Ou também informando o alias no list:
+./build/db-explorer-manager list "meu_alias"
+```
+*(Nota de segurança: A senha é sempre mascarada e nunca é exibida).*
+
+
 ### Removendo uma conexão
 ```bash
 ./build/db-explorer-manager remove "meu_alias"
