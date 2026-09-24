@@ -114,6 +114,91 @@ func printConnectionDetails(w io.Writer, alias string, conn config.ConnectionDet
 	}
 }
 
+func handleList(w io.Writer, cfg *config.Config, args []string) error {
+	if len(args) > 0 {
+		query := args[0]
+		matches := cfg.FindConnections(query)
+		if len(matches) == 0 {
+			return fmt.Errorf("❌ Conexão '%s' não encontrada.", query)
+		}
+
+		// Se houver correspondência exata ou apenas 1 correspondência, exibe os detalhes
+		if matches[0].Score <= 1 || len(matches) == 1 {
+			printConnectionDetails(w, matches[0].Alias, matches[0].Connection)
+			return nil
+		}
+
+		// Múltiplas correspondências: exibe a lista com os matches
+		fmt.Fprintf(w, "Conexões configuradas (correspondências para '%s'):\n", query)
+		for _, m := range matches {
+			mode := m.Connection.Mode
+			if mode == "" {
+				mode = "normal"
+			}
+			fmt.Fprintf(w, " - %s (%s) [Modo: %s]\n", m.Alias, m.Connection.Type, mode)
+		}
+		return nil
+	}
+
+	if len(cfg.Connections) == 0 {
+		fmt.Fprintln(w, "Nenhuma conexão configurada.")
+		return nil
+	}
+
+	fmt.Fprintln(w, "Conexões configuradas:")
+	all := cfg.FindConnections("")
+	for _, m := range all {
+		mode := m.Connection.Mode
+		if mode == "" {
+			mode = "normal"
+		}
+		fmt.Fprintf(w, " - %s (%s) [Modo: %s]\n", m.Alias, m.Connection.Type, mode)
+	}
+	return nil
+}
+
+func handleShow(w io.Writer, cfg *config.Config, alias string) error {
+	query := strings.TrimSpace(alias)
+	if query == "" {
+		return fmt.Errorf("❌ Nenhum alias informado.")
+	}
+
+	matches := cfg.FindConnections(query)
+	if len(matches) == 0 {
+		return fmt.Errorf("❌ Conexão '%s' não encontrada.", query)
+	}
+
+	// 1. Se houver correspondência exata ou apenas 1 correspondência
+	if matches[0].Score <= 1 || len(matches) == 1 {
+		printConnectionDetails(w, matches[0].Alias, matches[0].Connection)
+		return nil
+	}
+
+	// 2. Múltiplas correspondências aproximadas
+	if len(matches) <= 5 {
+		fmt.Fprintf(w, "Foram encontradas %d conexões correspondentes a '%s':\n\n", len(matches), query)
+		for i, m := range matches {
+			if i > 0 {
+				fmt.Fprintln(w)
+			}
+			printConnectionDetails(w, m.Alias, m.Connection)
+		}
+		return nil
+	}
+
+	// Mais de 5 correspondências: lista para não poluir o terminal
+	fmt.Fprintf(w, "Foram encontradas %d conexões correspondentes a '%s':\n", len(matches), query)
+	for _, m := range matches {
+		mode := m.Connection.Mode
+		if mode == "" {
+			mode = "normal"
+		}
+		fmt.Fprintf(w, " - %s (%s) [Modo: %s]\n", m.Alias, m.Connection.Type, mode)
+	}
+	fmt.Fprintln(w, "\nRefine o alias informado para exibir os detalhes de uma conexão específica.")
+	return nil
+}
+
 func main() {
 	rootCmd := &cobra.Command{
 		Use:   "db-explorer-manager",
@@ -556,10 +641,11 @@ func main() {
 		},
 	}
 
+
 	// list [alias]
 	cmdList := &cobra.Command{
 		Use:   "list [alias]",
-		Short: "Listar as conexões configuradas ou exibir detalhes de uma específica",
+		Short: "Listar as conexões configuradas ou exibir detalhes de uma específica (suporta busca aproximada)",
 		Args:  cobra.MaximumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
 			cfg, err := config.LoadConfig()
@@ -568,28 +654,9 @@ func main() {
 				os.Exit(1)
 			}
 
-			if len(args) > 0 {
-				alias := args[0]
-				conn, actualAlias, exists := cfg.GetConnection(alias)
-				if !exists {
-					fmt.Printf("❌ Conexão '%s' não encontrada.\n", alias)
-					os.Exit(1)
-				}
-				printConnectionDetails(os.Stdout, actualAlias, conn)
-				return
-			}
-
-			if len(cfg.Connections) == 0 {
-				fmt.Println("Nenhuma conexão configurada.")
-			} else {
-				fmt.Println("Conexões configuradas:")
-				for alias, c := range cfg.Connections {
-					mode := c.Mode
-					if mode == "" {
-						mode = "normal"
-					}
-					fmt.Printf(" - %s (%s) [Modo: %s]\n", alias, c.Type, mode)
-				}
+			if err := handleList(os.Stdout, cfg, args); err != nil {
+				fmt.Println(err)
+				os.Exit(1)
 			}
 		},
 	}
@@ -598,7 +665,7 @@ func main() {
 	cmdShow := &cobra.Command{
 		Use:     "show [alias]",
 		Aliases: []string{"info", "describe", "details", "get", "view"},
-		Short:   "Exibir os detalhes de uma conexão",
+		Short:   "Exibir os detalhes de uma conexão (suporta busca aproximada)",
 		Args:    cobra.MaximumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
 			alias := ""
@@ -608,24 +675,16 @@ func main() {
 				alias = ask("Alias (nome da conexão)", "")
 			}
 
-			if alias == "" {
-				fmt.Println("❌ Nenhum alias informado.")
-				os.Exit(1)
-			}
-
 			cfg, err := config.LoadConfig()
 			if err != nil {
 				fmt.Printf("❌ Erro ao carregar configurações: %v\n", err)
 				os.Exit(1)
 			}
 
-			conn, actualAlias, exists := cfg.GetConnection(alias)
-			if !exists {
-				fmt.Printf("❌ Conexão '%s' não encontrada.\n", alias)
+			if err := handleShow(os.Stdout, cfg, alias); err != nil {
+				fmt.Println(err)
 				os.Exit(1)
 			}
-
-			printConnectionDetails(os.Stdout, actualAlias, conn)
 		},
 	}
 

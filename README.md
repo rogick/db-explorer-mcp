@@ -101,12 +101,15 @@ Para gerenciar as conexões cadastradas sem que a IA tenha acesso:
 ### Listando conexões
 ```bash
 ./build/db-explorer-manager list
+# Ou filtrando por nome aproximado (prefixo, substring, fuzzy):
+./build/db-explorer-manager list "soft"
 ```
 
 ### Exibindo detalhes de uma conexão
 ```bash
+# Busca exata ou por nome aproximado (ex: "soft", "sankya", "remoto"):
 ./build/db-explorer-manager show "meu_alias"
-# Ou também informando o alias no list:
+# Ou também informando o alias/nome aproximado no list:
 ./build/db-explorer-manager list "meu_alias"
 ```
 *(Nota de segurança: A senha é sempre mascarada e nunca é exibida).*
