@@ -10,7 +10,7 @@ func TestFindConnections(t *testing.T) {
 			"SOFTRH_GUI_REMOTO": {Type: "oracle", Mode: "readonly"},
 			"SOFTRH_LOCAL":      {Type: "oracle", Mode: "normal"},
 			"modelosql-teste":   {Type: "sqlserver", Mode: "teste"},
-			"sankhya_prod":      {Type: "postgres", Mode: "readonly"},
+			"postgres_prod":     {Type: "postgres", Mode: "readonly"},
 			"dev_mysql":         {Type: "mysql", Mode: "normal"},
 		},
 	}
@@ -20,7 +20,7 @@ func TestFindConnections(t *testing.T) {
 		if len(matches) != 5 {
 			t.Fatalf("Esperado 5 conexões, obteve %d", len(matches))
 		}
-		expectedOrder := []string{"SOFTRH_GUI_REMOTO", "SOFTRH_LOCAL", "dev_mysql", "modelosql-teste", "sankhya_prod"}
+		expectedOrder := []string{"SOFTRH_GUI_REMOTO", "SOFTRH_LOCAL", "dev_mysql", "modelosql-teste", "postgres_prod"}
 		for i, exp := range expectedOrder {
 			if matches[i].Alias != exp {
 				t.Errorf("Posição %d esperada %s, obteve %s", i, exp, matches[i].Alias)
@@ -95,13 +95,13 @@ func TestFindConnections(t *testing.T) {
 		}
 	})
 
-	t.Run("Fuzzy match with typo (sankya -> sankhya_prod)", func(t *testing.T) {
-		matches := cfg.FindConnections("sankya")
+	t.Run("Fuzzy match with typo (posgres -> postgres_prod)", func(t *testing.T) {
+		matches := cfg.FindConnections("posgres")
 		if len(matches) == 0 {
-			t.Fatalf("Esperado encontrar 'sankhya_prod' para 'sankya'")
+			t.Fatalf("Esperado encontrar 'postgres_prod' para 'posgres'")
 		}
-		if matches[0].Alias != "sankhya_prod" {
-			t.Errorf("Esperado sankhya_prod, obteve %s", matches[0].Alias)
+		if matches[0].Alias != "postgres_prod" {
+			t.Errorf("Esperado postgres_prod, obteve %s", matches[0].Alias)
 		}
 	})
 

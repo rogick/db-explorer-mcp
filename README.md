@@ -107,7 +107,7 @@ Para gerenciar as conexões cadastradas sem que a IA tenha acesso:
 
 ### Exibindo detalhes de uma conexão
 ```bash
-# Busca exata ou por nome aproximado (ex: "soft", "sankya", "remoto"):
+# Busca exata ou por nome aproximado (ex: "soft", "posgres", "remoto"):
 ./build/db-explorer-manager show "meu_alias"
 # Ou também informando o alias/nome aproximado no list:
 ./build/db-explorer-manager list "meu_alias"

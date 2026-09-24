@@ -47,7 +47,7 @@ func TestPrintConnectionDetails_NeverExposesPassword(t *testing.T) {
 				Host:     "localhost",
 				Port:     1433,
 				Instance: "SQLEXPRESS",
-				Database: "sankhya",
+				Database: "appdb",
 			},
 			expected: []string{
 				"Detalhes da conexão 'sql_local':",
@@ -58,7 +58,7 @@ func TestPrintConnectionDetails_NeverExposesPassword(t *testing.T) {
 				"Host:      localhost",
 				"Porta:     1433",
 				"Instância: SQLEXPRESS",
-				"Database:  sankhya",
+				"Database:  appdb",
 			},
 		},
 		{
@@ -155,7 +155,7 @@ func TestHandleList(t *testing.T) {
 		Connections: map[string]config.ConnectionDetails{
 			"SOFTRH_GUI_REMOTO": {Type: "oracle", Mode: "readonly", DSN: "192.168.1.100:1521/ORCL"},
 			"SOFTRH_LOCAL":      {Type: "oracle", Mode: "normal", DSN: "localhost:1521/XE"},
-			"sankhya_prod":      {Type: "postgres", Mode: "readonly", Host: "localhost", Database: "sankhya"},
+			"postgres_prod":     {Type: "postgres", Mode: "readonly", Host: "localhost", Database: "appdb"},
 		},
 	}
 
@@ -169,20 +169,20 @@ func TestHandleList(t *testing.T) {
 		if !strings.Contains(out, "Conexões configuradas:") ||
 			!strings.Contains(out, "SOFTRH_GUI_REMOTO") ||
 			!strings.Contains(out, "SOFTRH_LOCAL") ||
-			!strings.Contains(out, "sankhya_prod") {
+			!strings.Contains(out, "postgres_prod") {
 			t.Errorf("Expected all connections in list output, got:\n%s", out)
 		}
 	})
 
 	t.Run("List with approximate name matching single connection shows details", func(t *testing.T) {
 		var buf bytes.Buffer
-		// "sankya" typo matching "sankhya_prod"
-		err := handleList(&buf, cfg, []string{"sankya"})
+		// "posgres" typo matching "postgres_prod"
+		err := handleList(&buf, cfg, []string{"posgres"})
 		if err != nil {
 			t.Fatalf("Unexpected error: %v", err)
 		}
 		out := buf.String()
-		if !strings.Contains(out, "Detalhes da conexão 'sankhya_prod':") {
+		if !strings.Contains(out, "Detalhes da conexão 'postgres_prod':") {
 			t.Errorf("Expected single match details, got:\n%s", out)
 		}
 	})
@@ -215,7 +215,7 @@ func TestHandleShow(t *testing.T) {
 		Connections: map[string]config.ConnectionDetails{
 			"SOFTRH_GUI_REMOTO": {Type: "oracle", Mode: "readonly", DSN: "192.168.1.100:1521/ORCL"},
 			"SOFTRH_LOCAL":      {Type: "oracle", Mode: "normal", DSN: "localhost:1521/XE"},
-			"sankhya_prod":      {Type: "postgres", Mode: "readonly", Host: "localhost", Database: "sankhya"},
+			"postgres_prod":     {Type: "postgres", Mode: "readonly", Host: "localhost", Database: "appdb"},
 		},
 	}
 
@@ -247,13 +247,13 @@ func TestHandleShow(t *testing.T) {
 
 	t.Run("Show with typo matches via fuzzy search", func(t *testing.T) {
 		var buf bytes.Buffer
-		err := handleShow(&buf, cfg, "sankya")
+		err := handleShow(&buf, cfg, "posgres")
 		if err != nil {
 			t.Fatalf("Unexpected error: %v", err)
 		}
 		out := buf.String()
-		if !strings.Contains(out, "Detalhes da conexão 'sankhya_prod':") {
-			t.Errorf("Expected details for sankhya_prod, got:\n%s", out)
+		if !strings.Contains(out, "Detalhes da conexão 'postgres_prod':") {
+			t.Errorf("Expected details for postgres_prod, got:\n%s", out)
 		}
 	})
 
