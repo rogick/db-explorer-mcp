@@ -47,6 +47,8 @@ archives:
     files:
       - README.md
       - LICENSE
+      - configure-claude-code.ps1
+      - configure-claude-code.sh
 
 checksum:
   name_template: "checksums.txt"

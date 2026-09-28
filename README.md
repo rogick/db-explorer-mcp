@@ -33,7 +33,13 @@ Sempre que cadastrar um banco, você pode atribuir um dos seguintes níveis de s
 ## Instalação
 
 ### Opção 1: Binários Pré-compilados (Recomendado)
-Você pode baixar os executáveis prontos para **Windows**, **Linux** e **macOS** (amd64 e arm64) diretamente na [página de Releases do GitHub](https://github.com/rogick/db-explorer-mcp/releases). Basta descompactar os binários `db-explorer-mcp` e `db-explorer-manager` e colocá-los no seu `PATH` (ex: `~/.local/bin` ou `%USERPROFILE%\.local\bin`).
+Você pode baixar o pacote pronto para seu sistema operacional na [página de Releases do GitHub](https://github.com/rogick/db-explorer-mcp/releases).
+
+Ao descompactar o arquivo, você encontrará os binários e scripts prontos para registrar o MCP no **Claude Code**:
+- **Windows:** Execute `.\configure-claude-code.ps1` (no PowerShell)
+- **Linux / macOS:** Execute `./configure-claude-code.sh` (no Terminal)
+
+O script automaticamente copia os binários para a pasta padrão (`~/.local/bin` ou `%USERPROFILE%\.local\bin`), ajusta as permissões e registra o MCP com `claude mcp add`.
 
 ### Opção 2: Compilar a partir do Código Fonte
 
