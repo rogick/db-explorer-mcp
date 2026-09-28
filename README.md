@@ -30,14 +30,19 @@ Sempre que cadastrar um banco, você pode atribuir um dos seguintes níveis de s
 
 ---
 
-## Compilação e Instalação
+## Instalação
 
-### No Windows (PowerShell)
+### Opção 1: Binários Pré-compilados (Recomendado)
+Você pode baixar os executáveis prontos para **Windows**, **Linux** e **macOS** (amd64 e arm64) diretamente na [página de Releases do GitHub](https://github.com/rogick/db-explorer-mcp/releases). Basta descompactar os binários `db-explorer-mcp` e `db-explorer-manager` e colocá-los no seu `PATH` (ex: `~/.local/bin` ou `%USERPROFILE%\.local\bin`).
+
+### Opção 2: Compilar a partir do Código Fonte
+
+#### No Windows (PowerShell)
 ```powershell
 .\install.ps1
 ```
 
-### No Linux / macOS (Bash)
+#### No Linux / macOS (Bash)
 ```bash
 chmod +x install.sh
 ./install.sh
@@ -139,3 +144,20 @@ go test ./... -v
 - `pkg/security/`: Parser de AST/tokens SQL para validação de segurança (`readonly`, `normal`, `teste`).
 - `pkg/formatters/`: Conversores de resultado (`json`, `xml`, `llm`, `toon`).
 - `pkg/mcp/`: Manipuladores de requisições do protocolo MCP.
+
+---
+
+## Criando uma Nova Release
+
+O projeto conta com automação via **GoReleaser** e **GitHub Actions**. Para publicar uma nova versão com binários para Windows, Linux e macOS:
+
+```bash
+# 1. Crie uma tag semântica apontando para o commit desejado
+git tag -a v1.0.0 -m "Release v1.0.0"
+
+# 2. Envie a tag para o repositório remoto
+git push origin v1.0.0
+```
+
+O GitHub Actions executará a suíte de testes unitários e, se tudo passar, compilará os binários para todas as plataformas suportadas, compactará os arquivos e publicará a nova release automaticamente no GitHub.
+

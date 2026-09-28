@@ -15,6 +15,9 @@ import (
 	"github.com/rogick/db-explorer-mcp/pkg/security"
 )
 
+// Version holds the current version of the MCP server, injected during build via -ldflags
+var Version = "dev"
+
 type Server struct {
 	mcpServer *mcpserver.MCPServer
 	exec      *db.Executor
@@ -27,7 +30,7 @@ func NewServer() *Server {
 
 	mcpSrv := mcpserver.NewMCPServer(
 		"db-explorer-mcp",
-		"1.0.0",
+		Version,
 	)
 
 	s.mcpServer = mcpSrv

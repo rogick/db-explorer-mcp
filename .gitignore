@@ -1,6 +1,7 @@
 # Build output
 build/
 bin/
+dist/
 
 # Binaries & executables
 *.exe

@@ -199,10 +199,14 @@ func handleShow(w io.Writer, cfg *config.Config, alias string) error {
 	return nil
 }
 
+// version holds the current version of the CLI, injected during build via -ldflags
+var version = "dev"
+
 func main() {
 	rootCmd := &cobra.Command{
-		Use:   "db-explorer-manager",
-		Short: "CLI para gerenciar conexões do DB Explorer MCP",
+		Use:     "db-explorer-manager",
+		Short:   "CLI para gerenciar conexões do DB Explorer MCP",
+		Version: version,
 	}
 
 	// add-oracle
