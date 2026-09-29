@@ -1,6 +1,7 @@
 package formatters
 
 import (
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -62,7 +63,44 @@ func FormatOutput(rows []map[string]interface{}, format string, columnOrder []st
 		sb.WriteString("</results>")
 		return sb.String(), nil
 
-	case "llm":
+	case "csv":
+		if len(stringifiedRows) == 0 && len(columnOrder) == 0 {
+			return "", nil
+		}
+		var keys []string
+		if len(stringifiedRows) > 0 {
+			keys = getKeys(stringifiedRows[0], columnOrder)
+		} else {
+			keys = columnOrder
+		}
+
+		var sb strings.Builder
+		writer := csv.NewWriter(&sb)
+
+		if err := writer.Write(keys); err != nil {
+			return "", fmt.Errorf("erro ao formatar CSV: %w", err)
+		}
+
+		for _, row := range stringifiedRows {
+			record := make([]string, len(keys))
+			for i, k := range keys {
+				val := row[k]
+				if val != nil {
+					record[i] = fmt.Sprintf("%v", val)
+				}
+			}
+			if err := writer.Write(record); err != nil {
+				return "", fmt.Errorf("erro ao formatar CSV: %w", err)
+			}
+		}
+
+		writer.Flush()
+		if err := writer.Error(); err != nil {
+			return "", fmt.Errorf("erro ao finalizar CSV: %w", err)
+		}
+		return sb.String(), nil
+
+	case "md", "markdown", "llm":
 		if len(stringifiedRows) == 0 {
 			return "Nenhum resultado retornado.", nil
 		}

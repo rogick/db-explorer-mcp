@@ -70,7 +70,7 @@ func (s *Server) registerTools() {
 		mcp.WithDescription("Executa uma consulta SQL no banco especificado. As operações permitidas dependem do modo de cada conexão: modo 'teste' permite TODAS as operações incluindo DROP, DELETE e TRUNCATE; modo 'normal' permite SELECT, CREATE, ALTER, INSERT, UPDATE mas bloqueia DROP, DELETE e TRUNCATE; modo 'readonly' permite apenas SELECT."+s.getDynamicDbDescription()),
 		mcp.WithString("db_alias", mcp.Required(), mcp.Description("O alias do banco de dados")),
 		mcp.WithString("query", mcp.Required(), mcp.Description("A consulta SQL a ser executada")),
-		mcp.WithString("format", mcp.Description("Formato de saída: json, xml, llm, toon. Default: json")),
+		mcp.WithString("format", mcp.Description("Formato de saída: json, xml, md, csv, toon. Default: json")),
 	)
 	s.mcpServer.AddTool(execQueryTool, s.handleExecuteQuery)
 }

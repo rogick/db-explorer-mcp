@@ -8,7 +8,7 @@ Este é um servidor MCP (Model Context Protocol) de alto desempenho escrito em *
 
 ## Funcionalidades
 - **4 Tools Disponíveis:** `list_databases`, `list_tables`, `get_table_schema`, `execute_query`
-- **Múltiplos Formatos de Saída:** A tool `execute_query` suporta formatação em `json`, `xml`, `llm` (markdown tables) e `toon` (formato denso otimizado para IA).
+- **Múltiplos Formatos de Saída:** A tool `execute_query` suporta formatação em `json`, `xml`, `md` (markdown tables), `csv` e `toon` (formato denso otimizado para IA).
 - **Descrições Dinâmicas:** A IA é capaz de ver os bancos e modos disponíveis antes de qualquer chamada.
 - **Gerenciador de Conexões Interativo:** Adicione senhas e bancos via terminal de forma segura sem mexer em arquivos JSON e totalmente fora do alcance da IA.
 - **Modos de Segurança Avançados:** Defina exatamente o que a IA pode fazer em cada banco. Protegido por um parser de AST/tokens SQL que evita bypasses com comentários ou múltiplas linhas.
@@ -148,7 +148,7 @@ go test ./... -v
 - `pkg/config/`: Leitura e gravação segura do arquivo `%USERPROFILE%\.db-explorer-config.json`.
 - `pkg/db/`: Abstração de banco com drivers 100% nativos em Go (`go-ora/v2`, `go-mssqldb`, `pgx/v5`, `go-sql-driver/mysql`).
 - `pkg/security/`: Parser de AST/tokens SQL para validação de segurança (`readonly`, `normal`, `teste`).
-- `pkg/formatters/`: Conversores de resultado (`json`, `xml`, `llm`, `toon`).
+- `pkg/formatters/`: Conversores de resultado (`json`, `xml`, `md`, `csv`, `toon`).
 - `pkg/mcp/`: Manipuladores de requisições do protocolo MCP.
 
 ---

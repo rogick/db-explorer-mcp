@@ -31,16 +31,58 @@ func TestFormatOutputXML(t *testing.T) {
 	}
 }
 
-func TestFormatOutputLLM(t *testing.T) {
+func TestFormatOutputMD(t *testing.T) {
 	rows := []map[string]interface{}{
 		{"id": 1, "name": "Alice"},
 	}
-	out, err := FormatOutput(rows, "llm", []string{"id", "name"})
+	out, err := FormatOutput(rows, "md", []string{"id", "name"})
 	if err != nil {
 		t.Fatalf("Erro inesperado: %v", err)
 	}
 	if !strings.Contains(out, "| id | name |") || !strings.Contains(out, "| 1 | Alice |") {
-		t.Errorf("Saída LLM incorreta: %s", out)
+		t.Errorf("Saída MD incorreta: %s", out)
+	}
+
+	// Teste de compatibilidade com alias llm
+	outLLM, err := FormatOutput(rows, "llm", []string{"id", "name"})
+	if err != nil {
+		t.Fatalf("Erro inesperado ao usar alias llm: %v", err)
+	}
+	if outLLM != out {
+		t.Errorf("Saída com alias llm diverge de md: %s vs %s", outLLM, out)
+	}
+}
+
+func TestFormatOutputCSV(t *testing.T) {
+	rows := []map[string]interface{}{
+		{"id": 1, "name": "Alice, Bob", "bio": "Linha 1\nLinha 2"},
+		{"id": 2, "name": "Charlie \"The Boss\"", "bio": "Dev"},
+	}
+	out, err := FormatOutput(rows, "csv", []string{"id", "name", "bio"})
+	if err != nil {
+		t.Fatalf("Erro inesperado: %v", err)
+	}
+	expected := "id,name,bio\n1,\"Alice, Bob\",\"Linha 1\nLinha 2\"\n2,\"Charlie \"\"The Boss\"\"\",Dev\n"
+	if out != expected {
+		t.Errorf("Saída CSV incorreta.\nEsperado:\n%s\nObtido:\n%s", expected, out)
+	}
+
+	// Teste com linhas vazias mas com columnOrder
+	outEmptyCols, err := FormatOutput([]map[string]interface{}{}, "csv", []string{"id", "name"})
+	if err != nil {
+		t.Fatalf("Erro inesperado: %v", err)
+	}
+	if outEmptyCols != "id,name\n" {
+		t.Errorf("Esperado apenas cabeçalho no CSV vazio com colunas, obtido: %q", outEmptyCols)
+	}
+
+	// Teste com linhas vazias e sem colunas
+	outEmpty, err := FormatOutput([]map[string]interface{}{}, "csv", nil)
+	if err != nil {
+		t.Fatalf("Erro inesperado: %v", err)
+	}
+	if outEmpty != "" {
+		t.Errorf("Esperado string vazia para CSV sem linhas e sem colunas, obtido: %q", outEmpty)
 	}
 }
 
