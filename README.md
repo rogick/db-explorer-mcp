@@ -8,7 +8,7 @@ Este é um servidor MCP (Model Context Protocol) de alto desempenho escrito em *
 
 ## Funcionalidades
 - **4 Tools Disponíveis:** `list_databases`, `list_tables`, `get_table_schema`, `execute_query`
-- **Múltiplos Formatos de Saída e Controle de Limite:** A tool `execute_query` suporta formatação em `json`, `xml`, `md` (markdown tables), `csv` e `toon` (formato denso otimizado para IA). Permite controle de paginação via parâmetro `limit` (padrão 500 linhas, `0` para sem limite) e emite aviso explícito de truncamento (ex: *"Mostrando 100 de 1400 linhas"*) evitando cortes silenciosos.
+- **Múltiplos Formatos de Saída e Paginação:** A tool `execute_query` suporta formatação em `json`, `xml`, `md` (markdown tables), `csv` e `toon` (formato denso otimizado para IA). Permite controle de limite e paginação via parâmetros `limit` (padrão 500 linhas, `0` para sem limite), `offset` (linhas a pular) e `page` (número da página, 1-based). Emite aviso explícito e inteligente de paginação/truncamento (ex: *"Mostrando linhas 1 a 100 de 1400 — página 1 de 14"*) com indicação de páginas e comando para próxima página.
 - **Descrições Dinâmicas:** A IA é capaz de ver os bancos e modos disponíveis antes de qualquer chamada.
 - **Gerenciador de Conexões Interativo:** Adicione senhas e bancos via terminal de forma segura sem mexer em arquivos JSON e totalmente fora do alcance da IA.
 - **Modos de Segurança Avançados:** Defina exatamente o que a IA pode fazer em cada banco. Protegido por um parser de AST/tokens SQL que evita bypasses com comentários ou múltiplas linhas.

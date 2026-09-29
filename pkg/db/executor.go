@@ -255,11 +255,12 @@ type QueryResult struct {
 	Columns         []string
 	ReturnedCount   int
 	TotalCount      int
+	Offset          int
 	Truncated       bool
 	ExceededCeiling bool
 }
 
-func (e *Executor) ExecuteQuery(db *sql.DB, query string, limit int) (*QueryResult, error) {
+func (e *Executor) ExecuteQuery(db *sql.DB, query string, limit int, offset int) (*QueryResult, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -282,6 +283,7 @@ func (e *Executor) ExecuteQuery(db *sql.DB, query string, limit int) (*QueryResu
 			Columns:       cols,
 			ReturnedCount: 1,
 			TotalCount:    1,
+			Offset:        0,
 			Truncated:     false,
 		}, nil
 	}
@@ -298,6 +300,10 @@ func (e *Executor) ExecuteQuery(db *sql.DB, query string, limit int) (*QueryResu
 	truncated := false
 	exceededCeiling := false
 
+	if offset < 0 {
+		offset = 0
+	}
+
 	maxFetchLimit := limit
 	if maxFetchLimit <= 0 {
 		maxFetchLimit = 50000 // teto de segurança para consultas sem limite
@@ -307,6 +313,12 @@ func (e *Executor) ExecuteQuery(db *sql.DB, query string, limit int) (*QueryResu
 
 	for rows.Next() {
 		totalCount++
+
+		// Pula registros anteriores ao offset
+		if totalCount <= offset {
+			continue
+		}
+
 		if count < maxFetchLimit {
 			count++
 			scanArgs := make([]interface{}, len(cols))
@@ -350,6 +362,7 @@ func (e *Executor) ExecuteQuery(db *sql.DB, query string, limit int) (*QueryResu
 		Columns:         cols,
 		ReturnedCount:   count,
 		TotalCount:      totalCount,
+		Offset:          offset,
 		Truncated:       truncated,
 		ExceededCeiling: exceededCeiling,
 	}, nil

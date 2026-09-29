@@ -37,26 +37,78 @@ func TestParseLimit(t *testing.T) {
 }
 
 func TestBuildSummaryMessage(t *testing.T) {
-	t.Run("Truncado com contagem total exata", func(t *testing.T) {
+	t.Run("Truncado com contagem total e paginação (Página 1)", func(t *testing.T) {
 		res := &db.QueryResult{
 			Rows:            make([]map[string]interface{}, 100),
 			Columns:         []string{"id", "nome"},
 			ReturnedCount:   100,
 			TotalCount:      1400,
+			Offset:          0,
 			Truncated:       true,
 			ExceededCeiling: false,
 		}
 
 		mdMsg, plainMsg := buildSummaryMessage(res, 100)
 
-		if !strings.Contains(mdMsg, "Mostrando 100 de 1400 linhas (resultados truncados no limite)") {
-			t.Errorf("Mensagem Markdown não contém aviso de truncamento esperado: %s", mdMsg)
+		if !strings.Contains(mdMsg, "Mostrando linhas 1 a 100 de 1400") {
+			t.Errorf("Mensagem Markdown não contém intervalo de linhas esperado: %s", mdMsg)
 		}
-		if !strings.Contains(mdMsg, "limit: 1400") {
-			t.Errorf("Mensagem Markdown não sugere o limite correto de 1400: %s", mdMsg)
+		if !strings.Contains(mdMsg, "página 1 de 14") {
+			t.Errorf("Mensagem Markdown não contém informação de página esperada: %s", mdMsg)
 		}
-		if !strings.Contains(plainMsg, "Mostrando 100 de 1400 linhas") {
+		if !strings.Contains(mdMsg, "page: 2") || !strings.Contains(mdMsg, "offset: 100") {
+			t.Errorf("Mensagem Markdown não sugere próxima página com page: 2 ou offset: 100: %s", mdMsg)
+		}
+		if !strings.Contains(plainMsg, "Mostrando linhas 1 a 100 de 1400") {
 			t.Errorf("Mensagem texto simples incorreta: %s", plainMsg)
+		}
+	})
+
+	t.Run("Truncado com paginação (Página 2)", func(t *testing.T) {
+		res := &db.QueryResult{
+			Rows:            make([]map[string]interface{}, 100),
+			Columns:         []string{"id", "nome"},
+			ReturnedCount:   100,
+			TotalCount:      1400,
+			Offset:          100,
+			Truncated:       true,
+			ExceededCeiling: false,
+		}
+
+		mdMsg, _ := buildSummaryMessage(res, 100)
+
+		if !strings.Contains(mdMsg, "Mostrando linhas 101 a 200 de 1400") {
+			t.Errorf("Mensagem Markdown não contém linhas 101 a 200: %s", mdMsg)
+		}
+		if !strings.Contains(mdMsg, "página 2 de 14") {
+			t.Errorf("Mensagem Markdown não contém página 2 de 14: %s", mdMsg)
+		}
+		if !strings.Contains(mdMsg, "page: 3") || !strings.Contains(mdMsg, "offset: 200") {
+			t.Errorf("Mensagem Markdown não sugere próxima página 3 / offset 200: %s", mdMsg)
+		}
+	})
+
+	t.Run("Última página da paginação", func(t *testing.T) {
+		res := &db.QueryResult{
+			Rows:            make([]map[string]interface{}, 100),
+			Columns:         []string{"id", "nome"},
+			ReturnedCount:   100,
+			TotalCount:      1400,
+			Offset:          1300,
+			Truncated:       false,
+			ExceededCeiling: false,
+		}
+
+		mdMsg, plainMsg := buildSummaryMessage(res, 100)
+
+		if !strings.Contains(mdMsg, "Mostrando linhas 1301 a 1400 de 1400") {
+			t.Errorf("Mensagem Markdown não contém linhas 1301 a 1400: %s", mdMsg)
+		}
+		if !strings.Contains(mdMsg, "fim dos resultados") {
+			t.Errorf("Mensagem Markdown não contém 'fim dos resultados': %s", mdMsg)
+		}
+		if !strings.Contains(plainMsg, "fim dos resultados") {
+			t.Errorf("Mensagem texto simples não contém 'fim dos resultados': %s", plainMsg)
 		}
 	})
 
@@ -66,26 +118,28 @@ func TestBuildSummaryMessage(t *testing.T) {
 			Columns:         []string{"id", "nome"},
 			ReturnedCount:   100,
 			TotalCount:      10000,
+			Offset:          0,
 			Truncated:       true,
 			ExceededCeiling: true,
 		}
 
 		mdMsg, plainMsg := buildSummaryMessage(res, 100)
 
-		if !strings.Contains(mdMsg, "Mostrando 100 de mais de 10000 linhas") {
+		if !strings.Contains(mdMsg, "Mostrando linhas 1 a 100 de mais de 10000") {
 			t.Errorf("Mensagem Markdown não contém 'mais de 10000': %s", mdMsg)
 		}
-		if !strings.Contains(plainMsg, "mais de 10000 linhas") {
+		if !strings.Contains(plainMsg, "mais de 10000") {
 			t.Errorf("Mensagem texto simples incorreta: %s", plainMsg)
 		}
 	})
 
-	t.Run("Não truncado com múltiplas linhas", func(t *testing.T) {
+	t.Run("Não truncado com múltiplas linhas e sem paginação", func(t *testing.T) {
 		res := &db.QueryResult{
 			Rows:            make([]map[string]interface{}, 45),
 			Columns:         []string{"id", "nome"},
 			ReturnedCount:   45,
 			TotalCount:      45,
+			Offset:          0,
 			Truncated:       false,
 			ExceededCeiling: false,
 		}
@@ -106,6 +160,7 @@ func TestBuildSummaryMessage(t *testing.T) {
 			Columns:         []string{"id"},
 			ReturnedCount:   1,
 			TotalCount:      1,
+			Offset:          0,
 			Truncated:       false,
 			ExceededCeiling: false,
 		}
@@ -125,6 +180,7 @@ func TestBuildSummaryMessage(t *testing.T) {
 			Columns:       []string{"status", "rowsAffected"},
 			ReturnedCount: 1,
 			TotalCount:    1,
+			Offset:        0,
 			Truncated:     false,
 		}
 
@@ -135,19 +191,23 @@ func TestBuildSummaryMessage(t *testing.T) {
 		}
 	})
 
-	t.Run("Sem linhas retornadas", func(t *testing.T) {
+	t.Run("Offset além do total de registros", func(t *testing.T) {
 		res := &db.QueryResult{
 			Rows:          []map[string]interface{}{},
 			Columns:       []string{"id"},
 			ReturnedCount: 0,
-			TotalCount:    0,
+			TotalCount:    1400,
+			Offset:        2000,
 			Truncated:     false,
 		}
 
-		mdMsg, plainMsg := buildSummaryMessage(res, 500)
+		mdMsg, plainMsg := buildSummaryMessage(res, 100)
 
-		if mdMsg != "" || plainMsg != "" {
-			t.Errorf("Esperado resumo vazio para 0 linhas, obteve md=%q, plain=%q", mdMsg, plainMsg)
+		if !strings.Contains(mdMsg, "Nenhum registro encontrado a partir do offset 2000") {
+			t.Errorf("Mensagem Markdown não contém aviso de offset vazio: %s", mdMsg)
+		}
+		if !strings.Contains(plainMsg, "offset 2000") {
+			t.Errorf("Mensagem texto simples não contém offset 2000: %s", plainMsg)
 		}
 	})
 }

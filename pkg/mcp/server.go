@@ -73,6 +73,8 @@ func (s *Server) registerTools() {
 		mcp.WithString("query", mcp.Required(), mcp.Description("A consulta SQL a ser executada")),
 		mcp.WithString("format", mcp.Description("Formato de saída: json, xml, md, csv, toon. Default: json")),
 		mcp.WithNumber("limit", mcp.Description("Limite máximo de linhas a retornar (default: 500, use 0 para sem limite)")),
+		mcp.WithNumber("offset", mcp.Description("Número de linhas para pular antes de retornar resultados (default: 0, para paginação)")),
+		mcp.WithNumber("page", mcp.Description("Número da página a retornar (1-based, default: 1; ex: page: 2 com limit: 100 equivale a offset: 100)")),
 	)
 	s.mcpServer.AddTool(execQueryTool, s.handleExecuteQuery)
 }
@@ -228,30 +230,61 @@ func buildSummaryMessage(res *db.QueryResult, limit int) (string, string) {
 		return "", ""
 	}
 
-	if len(res.Rows) == 0 {
+	if len(res.Rows) == 0 && res.Offset == 0 {
 		return "", ""
 	}
 
-	if res.Truncated {
-		totalStr := fmt.Sprintf("%d", res.TotalCount)
+	if len(res.Rows) == 0 && res.Offset > 0 {
+		msg := fmt.Sprintf("\n\n> ℹ️ **Paginação:** Nenhum registro encontrado a partir do offset %d (total de registros: %d).", res.Offset, res.TotalCount)
+		plain := fmt.Sprintf("Nenhum registro encontrado a partir do offset %d (total: %d).", res.Offset, res.TotalCount)
+		return msg, plain
+	}
+
+	startRow := res.Offset + 1
+	endRow := res.Offset + res.ReturnedCount
+
+	totalStr := fmt.Sprintf("%d", res.TotalCount)
+	if res.ExceededCeiling {
+		totalStr = fmt.Sprintf("mais de %d", res.TotalCount)
+	}
+
+	// Informações de página quando limit > 0
+	pageInfo := ""
+	nextPageHint := ""
+	if limit > 0 {
+		currentPage := (res.Offset / limit) + 1
+		totalPages := (res.TotalCount + limit - 1) / limit
 		if res.ExceededCeiling {
-			totalStr = fmt.Sprintf("mais de %d", res.TotalCount)
+			pageInfo = fmt.Sprintf(" — página %d de mais de %d", currentPage, totalPages)
+		} else if totalPages > 1 {
+			pageInfo = fmt.Sprintf(" — página %d de %d", currentPage, totalPages)
 		}
 
-		nextLim := res.TotalCount
-		if res.ExceededCeiling || nextLim <= res.ReturnedCount {
-			nextLim = res.ReturnedCount * 2
+		if res.Truncated {
+			nextPage := currentPage + 1
+			nextOffset := res.Offset + res.ReturnedCount
+			nextPageHint = fmt.Sprintf(" Para a próxima página, use `page: %d` ou `offset: %d`. Para sem limite, use `limit: 0`.", nextPage, nextOffset)
+		}
+	}
+
+	if res.Truncated || res.Offset > 0 {
+		if res.Truncated {
+			markdownMsg := fmt.Sprintf("\n\n> ⚠️ **Aviso:** Mostrando linhas %d a %d de %s%s (resultados truncados no limite).%s",
+				startRow, endRow, totalStr, pageInfo, nextPageHint)
+			plainMsg := fmt.Sprintf("⚠️ Aviso: Mostrando linhas %d a %d de %s%s (truncado).%s",
+				startRow, endRow, totalStr, pageInfo, nextPageHint)
+			return markdownMsg, plainMsg
 		}
 
-		markdownMsg := fmt.Sprintf("\n\n> ⚠️ **Aviso:** Mostrando %d de %s linhas (resultados truncados no limite). Para obter mais registros, defina o parâmetro 'limit' (ex: `limit: %d` ou `limit: 0` para sem limite) ou filtre a consulta com cláusulas SQL (WHERE).",
-			res.ReturnedCount, totalStr, nextLim)
-
-		plainMsg := fmt.Sprintf("⚠️ Aviso: Mostrando %d de %s linhas (resultados truncados no limite). Use o parâmetro 'limit' (ex: limit: %d ou limit: 0 para sem limite) ou filtre a consulta SQL.",
-			res.ReturnedCount, totalStr, nextLim)
-
+		// Última página de uma consulta paginada
+		markdownMsg := fmt.Sprintf("\n\n*(Mostrando linhas %d a %d de %s%s — fim dos resultados)*",
+			startRow, endRow, totalStr, pageInfo)
+		plainMsg := fmt.Sprintf("Mostrando linhas %d a %d de %s%s (fim dos resultados).",
+			startRow, endRow, totalStr, pageInfo)
 		return markdownMsg, plainMsg
 	}
 
+	// Não truncado e sem offset (página única completa)
 	plural := "linhas"
 	if res.ReturnedCount == 1 {
 		plural = "linha"
@@ -287,6 +320,19 @@ func (s *Server) handleExecuteQuery(ctx context.Context, req mcp.CallToolRequest
 		limit = parseLimit(limitArg, limit)
 	}
 
+	offset := 0
+	if offsetArg, exists := req.Params.Arguments["offset"]; exists && offsetArg != nil {
+		offset = parseLimit(offsetArg, 0)
+		if offset < 0 {
+			offset = 0
+		}
+	} else if pageArg, exists := req.Params.Arguments["page"]; exists && pageArg != nil {
+		page := parseLimit(pageArg, 1)
+		if page > 1 && limit > 0 {
+			offset = (page - 1) * limit
+		}
+	}
+
 	connDetails, _, exists := cfg.GetConnection(dbAlias)
 	if !exists {
 		return mcp.NewToolResultError(fmt.Sprintf("Conexão '%s' não encontrada.", dbAlias)), nil
@@ -310,7 +356,7 @@ func (s *Server) handleExecuteQuery(ctx context.Context, req mcp.CallToolRequest
 	}
 	defer dbConn.Close()
 
-	queryRes, err := s.exec.ExecuteQuery(dbConn, query, limit)
+	queryRes, err := s.exec.ExecuteQuery(dbConn, query, limit, offset)
 	if err != nil {
 		errData, _ := json.Marshal([]map[string]string{{"error": err.Error()}})
 		return mcp.NewToolResultText(string(errData)), nil
@@ -331,18 +377,20 @@ func (s *Server) handleExecuteQuery(ctx context.Context, req mcp.CallToolRequest
 		return mcp.NewToolResultText(output), nil
 
 	case "toon":
-		if queryRes.Truncated {
+		if queryRes.Truncated || queryRes.Offset > 0 {
 			totalStr := fmt.Sprintf("%d", queryRes.TotalCount)
 			if queryRes.ExceededCeiling {
 				totalStr = fmt.Sprintf("mais de %d", queryRes.TotalCount)
 			}
-			output += fmt.Sprintf("\n# aviso: mostrando %d de %s linhas (resultados truncados). Use o parâmetro 'limit' para obter mais linhas.", queryRes.ReturnedCount, totalStr)
+			startRow := queryRes.Offset + 1
+			endRow := queryRes.Offset + queryRes.ReturnedCount
+			output += fmt.Sprintf("\n# paginacao: mostrando linhas %d a %d de %s (use 'page' ou 'offset' para navegar).", startRow, endRow, totalStr)
 		}
 		return mcp.NewToolResultText(output), nil
 
 	default: // "json", "csv", "xml"
 		res := mcp.NewToolResultText(output)
-		if queryRes.Truncated {
+		if queryRes.Truncated || queryRes.Offset > 0 {
 			res.Content = append(res.Content, mcp.NewTextContent(plainSummary))
 		}
 		return res, nil
