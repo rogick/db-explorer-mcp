@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	mcpserver "github.com/mark3labs/mcp-go/server"
@@ -71,6 +72,7 @@ func (s *Server) registerTools() {
 		mcp.WithString("db_alias", mcp.Required(), mcp.Description("O alias do banco de dados")),
 		mcp.WithString("query", mcp.Required(), mcp.Description("A consulta SQL a ser executada")),
 		mcp.WithString("format", mcp.Description("Formato de saída: json, xml, md, csv, toon. Default: json")),
+		mcp.WithNumber("limit", mcp.Description("Limite máximo de linhas a retornar (default: 500, use 0 para sem limite)")),
 	)
 	s.mcpServer.AddTool(execQueryTool, s.handleExecuteQuery)
 }
@@ -196,6 +198,69 @@ func (s *Server) handleGetTableSchema(ctx context.Context, req mcp.CallToolReque
 	return mcp.NewToolResultText(string(data)), nil
 }
 
+func parseLimit(val interface{}, defaultLimit int) int {
+	if val == nil {
+		return defaultLimit
+	}
+	switch v := val.(type) {
+	case float64:
+		return int(v)
+	case float32:
+		return int(v)
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case int32:
+		return int(v)
+	case string:
+		v = strings.TrimSpace(v)
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
+	}
+	return defaultLimit
+}
+
+func buildSummaryMessage(res *db.QueryResult, limit int) (string, string) {
+	// Se for resultado de comando DML/DDL (status e rowsAffected), não exibe contagem de linhas
+	if len(res.Rows) == 1 && len(res.Columns) == 2 && res.Columns[0] == "status" && res.Columns[1] == "rowsAffected" {
+		return "", ""
+	}
+
+	if len(res.Rows) == 0 {
+		return "", ""
+	}
+
+	if res.Truncated {
+		totalStr := fmt.Sprintf("%d", res.TotalCount)
+		if res.ExceededCeiling {
+			totalStr = fmt.Sprintf("mais de %d", res.TotalCount)
+		}
+
+		nextLim := res.TotalCount
+		if res.ExceededCeiling || nextLim <= res.ReturnedCount {
+			nextLim = res.ReturnedCount * 2
+		}
+
+		markdownMsg := fmt.Sprintf("\n\n> ⚠️ **Aviso:** Mostrando %d de %s linhas (resultados truncados no limite). Para obter mais registros, defina o parâmetro 'limit' (ex: `limit: %d` ou `limit: 0` para sem limite) ou filtre a consulta com cláusulas SQL (WHERE).",
+			res.ReturnedCount, totalStr, nextLim)
+
+		plainMsg := fmt.Sprintf("⚠️ Aviso: Mostrando %d de %s linhas (resultados truncados no limite). Use o parâmetro 'limit' (ex: limit: %d ou limit: 0 para sem limite) ou filtre a consulta SQL.",
+			res.ReturnedCount, totalStr, nextLim)
+
+		return markdownMsg, plainMsg
+	}
+
+	plural := "linhas"
+	if res.ReturnedCount == 1 {
+		plural = "linha"
+	}
+	markdownMsg := fmt.Sprintf("\n\n*(Total: %d %s)*", res.ReturnedCount, plural)
+	plainMsg := fmt.Sprintf("Total: %d %s", res.ReturnedCount, plural)
+	return markdownMsg, plainMsg
+}
+
 func (s *Server) handleExecuteQuery(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	dbAlias, _ := req.Params.Arguments["db_alias"].(string)
 	query, _ := req.Params.Arguments["query"].(string)
@@ -212,6 +277,14 @@ func (s *Server) handleExecuteQuery(ctx context.Context, req mcp.CallToolRequest
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Erro ao carregar configuração: %v", err)), nil
+	}
+
+	limit := 500
+	if cfg.DefaultLimit > 0 {
+		limit = cfg.DefaultLimit
+	}
+	if limitArg, exists := req.Params.Arguments["limit"]; exists && limitArg != nil {
+		limit = parseLimit(limitArg, limit)
 	}
 
 	connDetails, _, exists := cfg.GetConnection(dbAlias)
@@ -237,18 +310,43 @@ func (s *Server) handleExecuteQuery(ctx context.Context, req mcp.CallToolRequest
 	}
 	defer dbConn.Close()
 
-	rows, cols, err := s.exec.ExecuteQuery(dbConn, query)
+	queryRes, err := s.exec.ExecuteQuery(dbConn, query, limit)
 	if err != nil {
 		errData, _ := json.Marshal([]map[string]string{{"error": err.Error()}})
 		return mcp.NewToolResultText(string(errData)), nil
 	}
 
-	output, err := formatters.FormatOutput(rows, format, cols)
+	output, err := formatters.FormatOutput(queryRes.Rows, format, queryRes.Columns)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Erro ao formatar resposta: %v", err)), nil
 	}
 
-	return mcp.NewToolResultText(output), nil
+	mdSummary, plainSummary := buildSummaryMessage(queryRes, limit)
+
+	switch strings.ToLower(format) {
+	case "md", "markdown", "llm":
+		if mdSummary != "" {
+			output += mdSummary
+		}
+		return mcp.NewToolResultText(output), nil
+
+	case "toon":
+		if queryRes.Truncated {
+			totalStr := fmt.Sprintf("%d", queryRes.TotalCount)
+			if queryRes.ExceededCeiling {
+				totalStr = fmt.Sprintf("mais de %d", queryRes.TotalCount)
+			}
+			output += fmt.Sprintf("\n# aviso: mostrando %d de %s linhas (resultados truncados). Use o parâmetro 'limit' para obter mais linhas.", queryRes.ReturnedCount, totalStr)
+		}
+		return mcp.NewToolResultText(output), nil
+
+	default: // "json", "csv", "xml"
+		res := mcp.NewToolResultText(output)
+		if queryRes.Truncated {
+			res.Content = append(res.Content, mcp.NewTextContent(plainSummary))
+		}
+		return res, nil
+	}
 }
 
 func (s *Server) ServeStdio() error {

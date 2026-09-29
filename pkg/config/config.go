@@ -22,7 +22,8 @@ type ConnectionDetails struct {
 }
 
 type Config struct {
-	Connections map[string]ConnectionDetails `json:"connections"`
+	Connections  map[string]ConnectionDetails `json:"connections"`
+	DefaultLimit int                          `json:"default_limit,omitempty"`
 }
 
 // GetConnection busca uma conexão pelo alias de modo case-insensitive.

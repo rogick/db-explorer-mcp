@@ -250,7 +250,16 @@ func (e *Executor) GetTableSchema(db *sql.DB, dbType string, tableName string) (
 	return schema, nil
 }
 
-func (e *Executor) ExecuteQuery(db *sql.DB, query string) ([]map[string]interface{}, []string, error) {
+type QueryResult struct {
+	Rows            []map[string]interface{}
+	Columns         []string
+	ReturnedCount   int
+	TotalCount      int
+	Truncated       bool
+	ExceededCeiling bool
+}
+
+func (e *Executor) ExecuteQuery(db *sql.DB, query string, limit int) (*QueryResult, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -259,7 +268,7 @@ func (e *Executor) ExecuteQuery(db *sql.DB, query string) ([]map[string]interfac
 		// Tenta executar como comando sem retorno (INSERT, UPDATE, DELETE, DDL)
 		res, execErr := db.ExecContext(ctx, query)
 		if execErr != nil {
-			return nil, nil, fmt.Errorf("erro ao executar query: %w", execErr)
+			return nil, fmt.Errorf("erro ao executar query: %w", execErr)
 		}
 
 		rowsAffected, _ := res.RowsAffected()
@@ -268,41 +277,80 @@ func (e *Executor) ExecuteQuery(db *sql.DB, query string) ([]map[string]interfac
 			"status":       "success",
 			"rowsAffected": rowsAffected,
 		}
-		return []map[string]interface{}{record}, cols, nil
+		return &QueryResult{
+			Rows:          []map[string]interface{}{record},
+			Columns:       cols,
+			ReturnedCount: 1,
+			TotalCount:    1,
+			Truncated:     false,
+		}, nil
 	}
 	defer rows.Close()
 
 	cols, err := rows.Columns()
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	var results []map[string]interface{}
 	count := 0
+	totalCount := 0
+	truncated := false
+	exceededCeiling := false
 
-	for rows.Next() && count < 100 {
-		count++
-		scanArgs := make([]interface{}, len(cols))
-		values := make([]interface{}, len(cols))
-		for i := range values {
-			scanArgs[i] = &values[i]
-		}
+	maxFetchLimit := limit
+	if maxFetchLimit <= 0 {
+		maxFetchLimit = 50000 // teto de segurança para consultas sem limite
+	}
+	maxCountCeiling := 10000 // teto para continuar contando linhas adicionais
+	var countStartTime time.Time
 
-		if err := rows.Scan(scanArgs...); err != nil {
-			return nil, nil, fmt.Errorf("erro ao escanear linha: %w", err)
-		}
+	for rows.Next() {
+		totalCount++
+		if count < maxFetchLimit {
+			count++
+			scanArgs := make([]interface{}, len(cols))
+			values := make([]interface{}, len(cols))
+			for i := range values {
+				scanArgs[i] = &values[i]
+			}
 
-		rowMap := make(map[string]interface{}, len(cols))
-		for i, col := range cols {
-			val := values[i]
-			if b, ok := val.([]byte); ok {
-				rowMap[col] = string(b)
-			} else {
-				rowMap[col] = val
+			if err := rows.Scan(scanArgs...); err != nil {
+				return nil, fmt.Errorf("erro ao escanear linha: %w", err)
+			}
+
+			rowMap := make(map[string]interface{}, len(cols))
+			for i, col := range cols {
+				val := values[i]
+				if b, ok := val.([]byte); ok {
+					rowMap[col] = string(b)
+				} else {
+					rowMap[col] = val
+				}
+			}
+			results = append(results, rowMap)
+		} else {
+			truncated = true
+			if countStartTime.IsZero() {
+				countStartTime = time.Now()
+			}
+			if totalCount >= maxCountCeiling || time.Since(countStartTime) > 2*time.Second {
+				exceededCeiling = true
+				break
 			}
 		}
-		results = append(results, rowMap)
 	}
 
-	return results, cols, nil
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("erro durante iteração das linhas: %w", err)
+	}
+
+	return &QueryResult{
+		Rows:            results,
+		Columns:         cols,
+		ReturnedCount:   count,
+		TotalCount:      totalCount,
+		Truncated:       truncated,
+		ExceededCeiling: exceededCeiling,
+	}, nil
 }
