@@ -47,6 +47,8 @@ archives:
     files:
       - README.md
       - LICENSE
+      - configure.ps1
+      - configure.sh
       - configure-claude-code.ps1
       - configure-claude-code.sh
 

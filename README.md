@@ -40,11 +40,15 @@ Sempre que cadastrar um banco, você pode atribuir um dos seguintes níveis de s
 ### Opção 1: Binários Pré-compilados (Recomendado)
 Você pode baixar o pacote pronto para seu sistema operacional na [página de Releases do GitHub](https://github.com/rogick/db-explorer-mcp/releases).
 
-Ao descompactar o arquivo, você encontrará os binários e scripts prontos para registrar o MCP no **Claude Code**:
-- **Windows:** Execute `.\configure-claude-code.ps1` (no PowerShell)
-- **Linux / macOS:** Execute `./configure-claude-code.sh` (no Terminal)
+Ao descompactar o arquivo, você encontrará os binários e scripts interativos prontos para configurar seus clientes de IA:
+- **Windows:** Execute `.\configure.ps1` (ou `.\configure-claude-code.ps1` no PowerShell)
+- **Linux / macOS:** Execute `./configure.sh` (ou `./configure-claude-code.sh` no Terminal)
 
-O script automaticamente copia os binários para a pasta padrão (`~/.local/bin` ou `%USERPROFILE%\.local\bin`), ajusta as permissões e registra o MCP com `claude mcp add`.
+O script pergunta interativamente antes de registrar cada cliente:
+1. **Claude Code (CLI):** Pergunta se deseja registrar e permite escolher o escopo (`user` ou `local`).
+2. **Claude Desktop:** Pergunta se deseja configurar e atualiza automaticamente o arquivo `claude_desktop_config.json`.
+3. **Cursor IDE:** Pergunta se deseja configurar e atualiza automaticamente o `~/.cursor/mcp.json`.
+4. **Codex (OpenAI Codex CLI / Desktop):** Pergunta se deseja configurar, registra via `codex mcp add` e grava no `~/.codex/config.toml`.
 
 ### Opção 2: Compilar a partir do Código Fonte
 
@@ -59,15 +63,23 @@ chmod +x install.sh
 ./install.sh
 ```
 
-Os scripts compilam e instalam os binários na pasta compartilhada `~/.local/bin` (ou `%USERPROFILE%\.local\bin` no Windows) e também na pasta local `build/`. Além disso, perguntam se você deseja registrar o MCP no Claude CLI e fornecem as instruções de configuração para o `claude_desktop_config.json`.
+Os scripts compilam os binários, instalam na pasta `~/.local/bin` (ou `%USERPROFILE%\.local\bin` no Windows) e na pasta local `build/`. Em seguida, perguntam interativamente para cada um dos clientes suportados (**Claude Code**, **Claude Desktop**, **Cursor** e **Codex**) antes de registrar ou alterar seus arquivos de configuração.
 
 ---
 
-## Registrando no Claude Desktop
+## Configuração Manual dos Clientes (Opcional)
 
-No **Claude Desktop**, adicione a configuração abaixo:
-- **Linux/macOS:** `~/.config/Claude/claude_desktop_config.json`
+Se preferir realizar a configuração manual ou inspecionar os arquivos:
+
+### Claude Code (CLI)
+```bash
+claude mcp add --scope user db-explorer -- "/caminho/para/db-explorer-mcp"
+```
+
+### Claude Desktop
 - **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+- **Linux:** `~/.config/Claude/claude_desktop_config.json`
+- **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
 
 ```json
 {
@@ -77,6 +89,32 @@ No **Claude Desktop**, adicione a configuração abaixo:
     }
   }
 }
+```
+
+### Cursor
+- **Windows:** `%USERPROFILE%\.cursor\mcp.json`
+- **Linux / macOS:** `~/.cursor/mcp.json`
+
+```json
+{
+  "mcpServers": {
+    "db-explorer": {
+      "command": "C:\\Users\\seu_usuario\\.local\\bin\\db-explorer-mcp.exe"
+    }
+  }
+}
+```
+
+### Codex
+- **CLI:**
+```bash
+codex mcp add db-explorer -- "/caminho/para/db-explorer-mcp"
+```
+- **Arquivo de Configuração (`~/.codex/config.toml`):**
+```toml
+[mcp_servers.db-explorer]
+command = "C:\\Users\\seu_usuario\\.local\\bin\\db-explorer-mcp.exe"
+enabled = true
 ```
 
 ---
