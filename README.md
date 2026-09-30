@@ -8,6 +8,11 @@ Este é um servidor MCP (Model Context Protocol) de alto desempenho escrito em *
 
 ## Funcionalidades
 - **4 Tools Disponíveis:** `list_databases`, `list_tables`, `get_table_schema`, `execute_query`
+- **Schema Detalhado com Níveis Configuráveis:** A tool `get_table_schema` retorna tamanho (`length`), precisão e escala (`precision`, `scale`), `nullable`, valores padrão (`default`), regras de validação por campo (`checks`) e todas as constraints da tabela (Primary Key, Foreign Keys com tabelas e colunas referenciadas, Unique e Check Constraints). Permite à IA escolher o nível de detalhamento via parâmetro `detail_level`:
+  - `detailed` / `full` *(padrão)*: completo com tamanho, precisão, nullable, default, checks dos campos e todas as constraints.
+  - `standard`: colunas com tamanho, precisão, nullable, default e constraints PK/FK/Unique (sem expressões de checks).
+  - `basic`: colunas essenciais, tipos, nullable e PK (formato super compacto para economia de tokens de contexto).
+  - Suporta também saída formatada em `json` (padrão) ou `md` (tabela e seções formatadas em Markdown).
 - **Múltiplos Formatos de Saída e Paginação:** A tool `execute_query` suporta formatação em `json`, `xml`, `md` (markdown tables), `csv` e `toon` (formato denso otimizado para IA). Permite controle de limite e paginação via parâmetros `limit` (padrão 500 linhas, `0` para sem limite), `offset` (linhas a pular) e `page` (número da página, 1-based). Emite aviso explícito e inteligente de paginação/truncamento (ex: *"Mostrando linhas 1 a 100 de 1400 — página 1 de 14"*) com indicação de páginas e comando para próxima página.
 - **Descrições Dinâmicas:** A IA é capaz de ver os bancos e modos disponíveis antes de qualquer chamada.
 - **Gerenciador de Conexões Interativo:** Adicione senhas e bancos via terminal de forma segura sem mexer em arquivos JSON e totalmente fora do alcance da IA.

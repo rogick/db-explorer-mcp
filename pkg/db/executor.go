@@ -205,49 +205,28 @@ func (e *Executor) ListTables(db *sql.DB, dbType string) ([]string, error) {
 	return tables, nil
 }
 
-func (e *Executor) GetTableSchema(db *sql.DB, dbType string, tableName string) ([]map[string]string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+func (e *Executor) GetTableSchema(db *sql.DB, dbType string, tableName string, detailLevel ...string) (*TableSchema, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
-	var query string
-	var args []interface{}
+	level := "detailed"
+	if len(detailLevel) > 0 {
+		level = detailLevel[0]
+	}
+	level = NormalizeDetailLevel(level)
 
-	switch dbType {
+	switch strings.ToLower(dbType) {
 	case "oracle":
-		query = "SELECT column_name, data_type FROM all_tab_columns WHERE table_name = :1"
-		args = append(args, strings.ToUpper(tableName))
+		return e.getTableSchemaOracle(ctx, db, tableName, level)
 	case "sqlserver":
-		query = "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = @p1"
-		args = append(args, tableName)
+		return e.getTableSchemaSqlServer(ctx, db, tableName, level)
 	case "postgres":
-		query = "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = $1"
-		args = append(args, tableName)
+		return e.getTableSchemaPostgres(ctx, db, tableName, level)
 	case "mysql":
-		query = "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = ? AND table_schema = DATABASE()"
-		args = append(args, tableName)
+		return e.getTableSchemaMysql(ctx, db, tableName, level)
 	default:
 		return nil, fmt.Errorf("tipo de banco '%s' não suportado", dbType)
 	}
-
-	rows, err := db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("erro ao obter schema da tabela: %w", err)
-	}
-	defer rows.Close()
-
-	var schema []map[string]string
-	for rows.Next() {
-		var col, typ string
-		if err := rows.Scan(&col, &typ); err != nil {
-			return nil, err
-		}
-		schema = append(schema, map[string]string{
-			"column": col,
-			"type":   typ,
-		})
-	}
-
-	return schema, nil
 }
 
 type QueryResult struct {

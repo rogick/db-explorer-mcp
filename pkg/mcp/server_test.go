@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	mcp_lib "github.com/mark3labs/mcp-go/mcp"
 	"github.com/rogick/db-explorer-mcp/pkg/db"
 )
 
@@ -216,5 +217,38 @@ func TestToolRegistration(t *testing.T) {
 	srv := NewServer()
 	if srv == nil {
 		t.Fatal("Esperado servidor não nulo")
+	}
+}
+
+func TestHandleGetTableSchemaValidation(t *testing.T) {
+	srv := NewServer()
+
+	// Sem argumentos obrigatórios
+	var reqEmpty mcp_lib.CallToolRequest
+	reqEmpty.Params.Name = "get_table_schema"
+	reqEmpty.Params.Arguments = map[string]interface{}{}
+
+	res, err := srv.handleGetTableSchema(nil, reqEmpty)
+	if err != nil {
+		t.Fatalf("Erro inesperado retornado: %v", err)
+	}
+	if !res.IsError {
+		t.Errorf("Esperado resultado de erro para argumentos vazios")
+	}
+
+	// Conexão inexistente
+	var reqNonExistent mcp_lib.CallToolRequest
+	reqNonExistent.Params.Name = "get_table_schema"
+	reqNonExistent.Params.Arguments = map[string]interface{}{
+		"db_alias":   "banco_que_nao_existe_xyz",
+		"table_name": "tabela_teste",
+	}
+
+	res2, err := srv.handleGetTableSchema(nil, reqNonExistent)
+	if err != nil {
+		t.Fatalf("Erro inesperado retornado: %v", err)
+	}
+	if !res2.IsError {
+		t.Errorf("Esperado resultado de erro para conexão inexistente")
 	}
 }

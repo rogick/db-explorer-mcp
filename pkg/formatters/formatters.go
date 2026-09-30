@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/rogick/db-explorer-mcp/pkg/db"
 )
 
 var invalidXmlTagChar = regexp.MustCompile(`[^a-zA-Z0-9_]`)
@@ -174,4 +176,139 @@ func getKeys(row map[string]interface{}, columnOrder []string) []string {
 		keys = append(keys, k)
 	}
 	return keys
+}
+
+func FormatTableSchemaMarkdown(schema *db.TableSchema, detailLevel string) string {
+	if schema == nil {
+		return "Nenhum schema disponível."
+	}
+
+	detailLevel = db.NormalizeDetailLevel(detailLevel)
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("### Tabela: %s\n\n", schema.Table))
+	sb.WriteString("#### Colunas\n")
+
+	var headers []string
+	switch detailLevel {
+	case "basic":
+		headers = []string{"Coluna", "Tipo", "Nullable", "PK"}
+	case "standard":
+		headers = []string{"Coluna", "Tipo", "Tamanho", "Precisão", "Nullable", "Padrão", "PK"}
+	case "detailed":
+		headers = []string{"Coluna", "Tipo", "Tamanho", "Precisão", "Nullable", "Padrão", "PK", "Checks"}
+	}
+
+	sb.WriteString("| " + strings.Join(headers, " | ") + " |\n")
+	seps := make([]string, len(headers))
+	for i := range seps {
+		seps[i] = "---"
+	}
+	sb.WriteString("| " + strings.Join(seps, " | ") + " |\n")
+
+	for _, col := range schema.Columns {
+		nullableStr := "NÃO"
+		if col.Nullable {
+			nullableStr = "SIM"
+		}
+		pkStr := "NÃO"
+		if col.PrimaryKey {
+			pkStr = "SIM"
+		}
+
+		lenStr := "-"
+		if col.Length != nil {
+			lenStr = fmt.Sprintf("%d", *col.Length)
+		}
+
+		precStr := "-"
+		if col.Precision != nil {
+			if col.Scale != nil && *col.Scale > 0 {
+				precStr = fmt.Sprintf("%d,%d", *col.Precision, *col.Scale)
+			} else {
+				precStr = fmt.Sprintf("%d", *col.Precision)
+			}
+		}
+
+		defStr := "-"
+		if col.DefaultValue != nil && *col.DefaultValue != "" {
+			defStr = *col.DefaultValue
+		}
+
+		checksStr := "-"
+		if len(col.Checks) > 0 {
+			checksStr = strings.Join(col.Checks, "; ")
+		}
+
+		var rowVals []string
+		switch detailLevel {
+		case "basic":
+			rowVals = []string{col.Column, col.Type, nullableStr, pkStr}
+		case "standard":
+			rowVals = []string{col.Column, col.Type, lenStr, precStr, nullableStr, defStr, pkStr}
+		case "detailed":
+			rowVals = []string{col.Column, col.Type, lenStr, precStr, nullableStr, defStr, pkStr, checksStr}
+		}
+
+		for i := range rowVals {
+			rowVals[i] = strings.ReplaceAll(rowVals[i], "|", "\\|")
+			rowVals[i] = strings.ReplaceAll(rowVals[i], "\n", " ")
+		}
+
+		sb.WriteString("| " + strings.Join(rowVals, " | ") + " |\n")
+	}
+
+	// Constraints
+	if schema.PrimaryKey != nil && len(schema.PrimaryKey.Columns) > 0 {
+		sb.WriteString("\n#### Primary Key\n")
+		name := schema.PrimaryKey.Name
+		if name == "" {
+			name = "PK"
+		}
+		sb.WriteString(fmt.Sprintf("- **%s**: %s\n", name, strings.Join(schema.PrimaryKey.Columns, ", ")))
+	}
+
+	if len(schema.ForeignKeys) > 0 {
+		sb.WriteString("\n#### Foreign Keys\n")
+		for _, fk := range schema.ForeignKeys {
+			name := fk.Name
+			if name == "" {
+				name = "FK"
+			}
+			refCols := strings.Join(fk.ReferencedColumns, ", ")
+			if refCols != "" {
+				refCols = "(" + refCols + ")"
+			}
+			sb.WriteString(fmt.Sprintf("- **%s**: (%s) -> %s%s\n",
+				name, strings.Join(fk.Columns, ", "), fk.ReferencedTable, refCols))
+		}
+	}
+
+	if len(schema.UniqueConstraints) > 0 {
+		sb.WriteString("\n#### Unique Constraints\n")
+		for _, uq := range schema.UniqueConstraints {
+			name := uq.Name
+			if name == "" {
+				name = "UQ"
+			}
+			sb.WriteString(fmt.Sprintf("- **%s**: (%s)\n", name, strings.Join(uq.Columns, ", ")))
+		}
+	}
+
+	if detailLevel == "detailed" && len(schema.CheckConstraints) > 0 {
+		sb.WriteString("\n#### Check Constraints\n")
+		for _, chk := range schema.CheckConstraints {
+			name := chk.Name
+			if name == "" {
+				name = "CHK"
+			}
+			colsInfo := ""
+			if len(chk.Columns) > 0 {
+				colsInfo = fmt.Sprintf(" (colunas: %s)", strings.Join(chk.Columns, ", "))
+			}
+			sb.WriteString(fmt.Sprintf("- **%s**: %s%s\n", name, chk.Clause, colsInfo))
+		}
+	}
+
+	return strings.TrimRight(sb.String(), "\n")
 }

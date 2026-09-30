@@ -59,9 +59,11 @@ func (s *Server) registerTools() {
 	// get_table_schema tool
 	getSchemaTool := mcp.NewTool(
 		"get_table_schema",
-		mcp.WithDescription("Retorna as colunas e os tipos de dados de uma tabela específica."+s.getDynamicDbDescription()),
+		mcp.WithDescription("Retorna o schema detalhado de uma tabela específica, incluindo colunas, tipos de dados, tamanho, precisão, escala, nullable, valores padrão, checks de validação dos campos e constraints (PK, FK, Unique, Check). Permite escolher o nível de detalhamento via 'detail_level'."+s.getDynamicDbDescription()),
 		mcp.WithString("db_alias", mcp.Required(), mcp.Description("O alias do banco de dados")),
 		mcp.WithString("table_name", mcp.Required(), mcp.Description("O nome da tabela")),
+		mcp.WithString("detail_level", mcp.Description("Nível de detalhamento do schema: 'detailed' ou 'full' (default: completo, com tamanho, precisão, nullable, default, checks dos campos e todas as constraints), 'standard' (inclui tamanho, precisão, default e constraints PK/FK/Unique, sem checks), ou 'basic' (apenas colunas, tipos, nullable e PK).")),
+		mcp.WithString("format", mcp.Description("Formato de saída: 'json' (default) ou 'md'/'markdown'.")),
 	)
 	s.mcpServer.AddTool(getSchemaTool, s.handleGetTableSchema)
 
@@ -170,6 +172,8 @@ func (s *Server) handleListTables(ctx context.Context, req mcp.CallToolRequest) 
 func (s *Server) handleGetTableSchema(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	dbAlias, _ := req.Params.Arguments["db_alias"].(string)
 	tableName, _ := req.Params.Arguments["table_name"].(string)
+	detailLevel, _ := req.Params.Arguments["detail_level"].(string)
+	format, _ := req.Params.Arguments["format"].(string)
 
 	if dbAlias == "" || tableName == "" {
 		return mcp.NewToolResultError("Os argumentos 'db_alias' e 'table_name' são obrigatórios."), nil
@@ -191,13 +195,22 @@ func (s *Server) handleGetTableSchema(ctx context.Context, req mcp.CallToolReque
 	}
 	defer dbConn.Close()
 
-	schema, err := s.exec.GetTableSchema(dbConn, dbType, tableName)
+	schema, err := s.exec.GetTableSchema(dbConn, dbType, tableName, detailLevel)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Erro ao obter schema da tabela '%s': %v", tableName, err)), nil
 	}
 
-	data, _ := json.MarshalIndent(schema, "", "  ")
-	return mcp.NewToolResultText(string(data)), nil
+	switch strings.ToLower(strings.TrimSpace(format)) {
+	case "md", "markdown", "llm":
+		output := formatters.FormatTableSchemaMarkdown(schema, detailLevel)
+		return mcp.NewToolResultText(output), nil
+	default:
+		data, err := json.MarshalIndent(schema, "", "  ")
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Erro ao serializar schema: %v", err)), nil
+		}
+		return mcp.NewToolResultText(string(data)), nil
+	}
 }
 
 func parseLimit(val interface{}, defaultLimit int) int {
