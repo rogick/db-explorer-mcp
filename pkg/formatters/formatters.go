@@ -7,11 +7,77 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/rogick/db-explorer-mcp/pkg/db"
 )
 
 var invalidXmlTagChar = regexp.MustCompile(`[^a-zA-Z0-9_]`)
+
+// FormatOptions contém opções configuráveis para a formatação de resultados.
+type FormatOptions struct {
+	CSVSeparator string
+}
+
+// ParseCSVSeparator analisa e valida uma string de separador para o formato CSV.
+// Retorna a rune correspondente (padrão ',' se vazio) ou erro se inválido.
+func ParseCSVSeparator(sep string) (rune, error) {
+	if sep == "" {
+		return ',', nil
+	}
+
+	switch strings.ToLower(strings.TrimSpace(sep)) {
+	case "\\t", "tab":
+		return '\t', nil
+	case "\\s", "space":
+		return ' ', nil
+	case "pipe":
+		return '|', nil
+	case "comma":
+		return ',', nil
+	case "semicolon", "ponto e virgula", "ponto-e-virgula", "ponto_e_virgula":
+		return ';', nil
+	}
+
+	runes := []rune(sep)
+	if len(runes) == 1 {
+		r := runes[0]
+		if r == 0 {
+			return 0, fmt.Errorf("o separador CSV não pode ser caractere nulo")
+		}
+		if r == '"' {
+			return 0, fmt.Errorf("o separador CSV não pode ser aspas duplas (\")")
+		}
+		if r == '\r' || r == '\n' {
+			return 0, fmt.Errorf("o separador CSV não pode ser quebra de linha")
+		}
+		if !utf8.ValidRune(r) || r == utf8.RuneError {
+			return 0, fmt.Errorf("o separador CSV é um caractere inválido")
+		}
+		return r, nil
+	}
+
+	trimmed := strings.TrimSpace(sep)
+	trimmedRunes := []rune(trimmed)
+	if len(trimmedRunes) == 1 {
+		r := trimmedRunes[0]
+		if r == 0 {
+			return 0, fmt.Errorf("o separador CSV não pode ser caractere nulo")
+		}
+		if r == '"' {
+			return 0, fmt.Errorf("o separador CSV não pode ser aspas duplas (\")")
+		}
+		if r == '\r' || r == '\n' {
+			return 0, fmt.Errorf("o separador CSV não pode ser quebra de linha")
+		}
+		if !utf8.ValidRune(r) || r == utf8.RuneError {
+			return 0, fmt.Errorf("o separador CSV é um caractere inválido")
+		}
+		return r, nil
+	}
+
+	return 0, fmt.Errorf("o separador CSV deve ser um único caractere (ex: ',', ';', '\\t', '|'), obtido: %q", sep)
+}
 
 // StringifyRows converte os valores de um slice de mapas para uma representação em string ou nil,
 // imitando o comportamento do TS (String(val)).
@@ -38,7 +104,7 @@ func StringifyRows(rows []map[string]interface{}) []map[string]interface{} {
 	return result
 }
 
-func FormatOutput(rows []map[string]interface{}, format string, columnOrder []string) (string, error) {
+func FormatOutput(rows []map[string]interface{}, format string, columnOrder []string, opts ...FormatOptions) (string, error) {
 	stringifiedRows := StringifyRows(rows)
 
 	switch strings.ToLower(format) {
@@ -66,6 +132,15 @@ func FormatOutput(rows []map[string]interface{}, format string, columnOrder []st
 		return sb.String(), nil
 
 	case "csv":
+		separator := ','
+		if len(opts) > 0 && opts[0].CSVSeparator != "" {
+			var err error
+			separator, err = ParseCSVSeparator(opts[0].CSVSeparator)
+			if err != nil {
+				return "", err
+			}
+		}
+
 		if len(stringifiedRows) == 0 && len(columnOrder) == 0 {
 			return "", nil
 		}
@@ -78,6 +153,7 @@ func FormatOutput(rows []map[string]interface{}, format string, columnOrder []st
 
 		var sb strings.Builder
 		writer := csv.NewWriter(&sb)
+		writer.Comma = separator
 
 		if err := writer.Write(keys); err != nil {
 			return "", fmt.Errorf("erro ao formatar CSV: %w", err)

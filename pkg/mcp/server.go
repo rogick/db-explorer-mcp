@@ -74,6 +74,7 @@ func (s *Server) registerTools() {
 		mcp.WithString("db_alias", mcp.Required(), mcp.Description("O alias do banco de dados")),
 		mcp.WithString("query", mcp.Required(), mcp.Description("A consulta SQL a ser executada")),
 		mcp.WithString("format", mcp.Description("Formato de saída: json, xml, md, csv, toon. Default: json")),
+		mcp.WithString("csv_separator", mcp.Description("Separador/delimitador de colunas quando format='csv' (ex: ',', ';', '\\t', '|'). Default: ','")),
 		mcp.WithNumber("limit", mcp.Description("Limite máximo de linhas a retornar (default: 500, use 0 para sem limite)")),
 		mcp.WithNumber("offset", mcp.Description("Número de linhas para pular antes de retornar resultados (default: 0, para paginação)")),
 		mcp.WithNumber("page", mcp.Description("Número da página a retornar (1-based, default: 1; ex: page: 2 com limit: 100 equivale a offset: 100)")),
@@ -237,6 +238,17 @@ func parseLimit(val interface{}, defaultLimit int) int {
 	return defaultLimit
 }
 
+func parseStringArg(args map[string]interface{}, keys ...string) string {
+	for _, key := range keys {
+		if val, exists := args[key]; exists && val != nil {
+			if s, ok := val.(string); ok && s != "" {
+				return s
+			}
+		}
+	}
+	return ""
+}
+
 func buildSummaryMessage(res *db.QueryResult, limit int) (string, string) {
 	// Se for resultado de comando DML/DDL (status e rowsAffected), não exibe contagem de linhas
 	if len(res.Rows) == 1 && len(res.Columns) == 2 && res.Columns[0] == "status" && res.Columns[1] == "rowsAffected" {
@@ -312,8 +324,14 @@ func (s *Server) handleExecuteQuery(ctx context.Context, req mcp.CallToolRequest
 	query, _ := req.Params.Arguments["query"].(string)
 	format, _ := req.Params.Arguments["format"].(string)
 
+	csvSeparator := parseStringArg(req.Params.Arguments, "csv_separator", "csv_delimiter", "separator", "delimiter")
+
 	if format == "" {
-		format = "json"
+		if csvSeparator != "" {
+			format = "csv"
+		} else {
+			format = "json"
+		}
 	}
 
 	if dbAlias == "" || query == "" {
@@ -375,7 +393,9 @@ func (s *Server) handleExecuteQuery(ctx context.Context, req mcp.CallToolRequest
 		return mcp.NewToolResultText(string(errData)), nil
 	}
 
-	output, err := formatters.FormatOutput(queryRes.Rows, format, queryRes.Columns)
+	output, err := formatters.FormatOutput(queryRes.Rows, format, queryRes.Columns, formatters.FormatOptions{
+		CSVSeparator: csvSeparator,
+	})
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Erro ao formatar resposta: %v", err)), nil
 	}

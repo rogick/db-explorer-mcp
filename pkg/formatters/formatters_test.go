@@ -86,6 +86,124 @@ func TestFormatOutputCSV(t *testing.T) {
 	if outEmpty != "" {
 		t.Errorf("Esperado string vazia para CSV sem linhas e sem colunas, obtido: %q", outEmpty)
 	}
+
+	// Teste com separador ponto e vírgula ';'
+	outSemicolon, err := FormatOutput(rows, "csv", []string{"id", "name", "bio"}, FormatOptions{CSVSeparator: ";"})
+	if err != nil {
+		t.Fatalf("Erro inesperado com separador ';': %v", err)
+	}
+	expectedSemicolon := "id;name;bio\n1;Alice, Bob;\"Linha 1\nLinha 2\"\n2;\"Charlie \"\"The Boss\"\"\";Dev\n"
+	if outSemicolon != expectedSemicolon {
+		t.Errorf("Saída CSV com ';' incorreta.\nEsperado:\n%s\nObtido:\n%s", expectedSemicolon, outSemicolon)
+	}
+
+	// Teste com separador tabulação '\t'
+	outTab, err := FormatOutput(rows, "csv", []string{"id", "name", "bio"}, FormatOptions{CSVSeparator: "\t"})
+	if err != nil {
+		t.Fatalf("Erro inesperado com separador tab: %v", err)
+	}
+	expectedTab := "id\tname\tbio\n1\tAlice, Bob\t\"Linha 1\nLinha 2\"\n2\t\"Charlie \"\"The Boss\"\"\"\tDev\n"
+	if outTab != expectedTab {
+		t.Errorf("Saída CSV com tab incorreta.\nEsperado:\n%s\nObtido:\n%s", expectedTab, outTab)
+	}
+
+	// Teste com separador tab em formato escaped "\\t"
+	outEscapedTab, err := FormatOutput(rows, "csv", []string{"id", "name", "bio"}, FormatOptions{CSVSeparator: "\\t"})
+	if err != nil {
+		t.Fatalf("Erro inesperado com separador '\\t': %v", err)
+	}
+	if outEscapedTab != expectedTab {
+		t.Errorf("Saída CSV com '\\\\t' deve ser idêntica a '\\t'.\nEsperado:\n%s\nObtido:\n%s", expectedTab, outEscapedTab)
+	}
+
+	// Teste com separador pipe '|'
+	outPipe, err := FormatOutput(rows, "csv", []string{"id", "name", "bio"}, FormatOptions{CSVSeparator: "|"})
+	if err != nil {
+		t.Fatalf("Erro inesperado com separador pipe: %v", err)
+	}
+	expectedPipe := "id|name|bio\n1|Alice, Bob|\"Linha 1\nLinha 2\"\n2|\"Charlie \"\"The Boss\"\"\"|Dev\n"
+	if outPipe != expectedPipe {
+		t.Errorf("Saída CSV com pipe incorreta.\nEsperado:\n%s\nObtido:\n%s", expectedPipe, outPipe)
+	}
+
+	// Teste com linhas vazias e separador customizado ';'
+	outEmptyCustom, err := FormatOutput([]map[string]interface{}{}, "csv", []string{"id", "name"}, FormatOptions{CSVSeparator: ";"})
+	if err != nil {
+		t.Fatalf("Erro inesperado: %v", err)
+	}
+	if outEmptyCustom != "id;name\n" {
+		t.Errorf("Esperado 'id;name\\n', obtido: %q", outEmptyCustom)
+	}
+
+	// Teste com separador inválido (aspas duplas)
+	_, errQuote := FormatOutput(rows, "csv", []string{"id", "name"}, FormatOptions{CSVSeparator: "\""})
+	if errQuote == nil {
+		t.Error("Esperado erro ao usar aspas duplas como separador CSV")
+	}
+
+	// Teste com separador inválido (quebra de linha)
+	_, errNewline := FormatOutput(rows, "csv", []string{"id", "name"}, FormatOptions{CSVSeparator: "\n"})
+	if errNewline == nil {
+		t.Error("Esperado erro ao usar quebra de linha como separador CSV")
+	}
+
+	// Teste com separador inválido (múltiplos caracteres desconhecidos)
+	_, errMulti := FormatOutput(rows, "csv", []string{"id", "name"}, FormatOptions{CSVSeparator: "invalid"})
+	if errMulti == nil {
+		t.Error("Esperado erro ao usar múltiplos caracteres como separador CSV")
+	}
+}
+
+func TestParseCSVSeparator(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     string
+		expected  rune
+		expectErr bool
+	}{
+		{"vazio (default virgula)", "", ',', false},
+		{"virgula literal", ",", ',', false},
+		{"ponto e virgula literal", ";", ';', false},
+		{"pipe literal", "|", '|', false},
+		{"dois pontos literal", ":", ':', false},
+		{"espaco simples", " ", ' ', false},
+		{"tab literal", "\t", '\t', false},
+		{"tab escapado", "\\t", '\t', false},
+		{"palavra tab", "tab", '\t', false},
+		{"palavra TAB maiuscula", "TAB", '\t', false},
+		{"palavra pipe", "pipe", '|', false},
+		{"palavra comma", "comma", ',', false},
+		{"palavra semicolon", "semicolon", ';', false},
+		{"ponto e virgula escrito", "ponto e virgula", ';', false},
+		{"ponto-e-virgula hifen", "ponto-e-virgula", ';', false},
+		{"palavra space", "space", ' ', false},
+		{"espaco escapado", "\\s", ' ', false},
+		{"espaco ao redor de delimitador", " ; ", ';', false},
+		{"delimitador com aspas duplas invalido", "\"", 0, true},
+		{"delimitador quebra de linha n", "\n", 0, true},
+		{"delimitador quebra de linha r", "\r", 0, true},
+		{"delimitador quebra de linha rn", "\r\n", 0, true},
+		{"delimitador string longa", "abc", 0, true},
+		{"delimitador nulo", "\x00", 0, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ParseCSVSeparator(tt.input)
+			if tt.expectErr {
+				if err == nil {
+					t.Errorf("ParseCSVSeparator(%q) esperado erro, mas obteve sucesso com %c", tt.input, got)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("ParseCSVSeparator(%q) erro inesperado: %v", tt.input, err)
+				}
+				if got != tt.expected {
+					t.Errorf("ParseCSVSeparator(%q) = %q; esperado %q", tt.input, string(got), string(tt.expected))
+				}
+			}
+		})
+	}
 }
 
 func TestFormatOutputToon(t *testing.T) {

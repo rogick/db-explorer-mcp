@@ -252,3 +252,93 @@ func TestHandleGetTableSchemaValidation(t *testing.T) {
 		t.Errorf("Esperado resultado de erro para conexão inexistente")
 	}
 }
+
+func TestParseStringArg(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     map[string]interface{}
+		keys     []string
+		expected string
+	}{
+		{
+			name:     "mapa vazio",
+			args:     map[string]interface{}{},
+			keys:     []string{"csv_separator", "csv_delimiter"},
+			expected: "",
+		},
+		{
+			name:     "primeira chave presente",
+			args:     map[string]interface{}{"csv_separator": ";"},
+			keys:     []string{"csv_separator", "csv_delimiter"},
+			expected: ";",
+		},
+		{
+			name:     "fallback para segunda chave",
+			args:     map[string]interface{}{"csv_delimiter": "\t"},
+			keys:     []string{"csv_separator", "csv_delimiter"},
+			expected: "\t",
+		},
+		{
+			name:     "primeira chave vazia faz fallback para proxima",
+			args:     map[string]interface{}{"csv_separator": "", "separator": "|"},
+			keys:     []string{"csv_separator", "separator"},
+			expected: "|",
+		},
+		{
+			name:     "preserva espaco simples como separador",
+			args:     map[string]interface{}{"csv_separator": " "},
+			keys:     []string{"csv_separator"},
+			expected: " ",
+		},
+		{
+			name:     "ignora tipo nao string",
+			args:     map[string]interface{}{"csv_separator": 123, "csv_delimiter": ";"},
+			keys:     []string{"csv_separator", "csv_delimiter"},
+			expected: ";",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseStringArg(tt.args, tt.keys...)
+			if got != tt.expected {
+				t.Errorf("parseStringArg() = %q; esperado %q", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestHandleExecuteQueryValidation(t *testing.T) {
+	srv := NewServer()
+
+	// Sem argumentos obrigatórios
+	var reqEmpty mcp_lib.CallToolRequest
+	reqEmpty.Params.Name = "execute_query"
+	reqEmpty.Params.Arguments = map[string]interface{}{}
+
+	res, err := srv.handleExecuteQuery(nil, reqEmpty)
+	if err != nil {
+		t.Fatalf("Erro inesperado retornado: %v", err)
+	}
+	if !res.IsError {
+		t.Errorf("Esperado resultado de erro para query e db_alias vazios")
+	}
+
+	// Conexão inexistente com formato CSV e separador customizado
+	var reqNonExistent mcp_lib.CallToolRequest
+	reqNonExistent.Params.Name = "execute_query"
+	reqNonExistent.Params.Arguments = map[string]interface{}{
+		"db_alias":      "banco_que_nao_existe_xyz",
+		"query":         "SELECT 1",
+		"format":        "csv",
+		"csv_separator": ";",
+	}
+
+	res2, err := srv.handleExecuteQuery(nil, reqNonExistent)
+	if err != nil {
+		t.Fatalf("Erro inesperado retornado: %v", err)
+	}
+	if !res2.IsError {
+		t.Errorf("Esperado resultado de erro para conexão inexistente")
+	}
+}
