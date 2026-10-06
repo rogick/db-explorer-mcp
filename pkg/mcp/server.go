@@ -80,6 +80,67 @@ func (s *Server) registerTools() {
 		mcp.WithNumber("page", mcp.Description("Número da página a retornar (1-based, default: 1; ex: page: 2 com limit: 100 equivale a offset: 100)")),
 	)
 	s.mcpServer.AddTool(execQueryTool, s.handleExecuteQuery)
+
+	// list_constraints tool
+	listConstraintsTool := mcp.NewTool(
+		"list_constraints",
+		mcp.WithDescription("Lista as constraints (PK, FK, UNIQUE, CHECK, DEFAULT) de uma tabela ou do schema inteiro, com colunas, referências e regras de integridade. Suporta filtro por tipo e direção (own ou referenced_by para descobrir quem referencia a tabela)."+s.getDynamicDbDescription()),
+		mcp.WithString("db_alias", mcp.Required(), mcp.Description("O alias do banco de dados")),
+		mcp.WithString("table_name", mcp.Description("Nome da tabela para restringir a busca. Sem ele, lista o schema inteiro (paginado)")),
+		mcp.WithString("constraint_type", mcp.Description("Tipo de constraint: 'PK', 'FK', 'UNIQUE', 'CHECK' ou 'DEFAULT'. Sem ele, lista todos os tipos")),
+		mcp.WithString("direction", mcp.Description("Direção do relacionamento: 'own' (padrão: constraints pertencentes à tabela) ou 'referenced_by' (FKs de outras tabelas que apontam para esta tabela)")),
+		mcp.WithString("owner", mcp.Description("Schema (ou database no MySQL). Padrão: schema/database padrão da conexão")),
+		mcp.WithString("format", mcp.Description("Formato de saída: json, xml, md, csv, toon. Default: json")),
+		mcp.WithString("csv_separator", mcp.Description("Separador/delimitador de colunas quando format='csv' (ex: ',', ';', '\\t', '|'). Default: ','")),
+		mcp.WithNumber("limit", mcp.Description("Limite máximo de registros a retornar (default: 500, use 0 para sem limite)")),
+		mcp.WithNumber("offset", mcp.Description("Número de registros para pular antes de retornar resultados (default: 0, para paginação)")),
+		mcp.WithNumber("page", mcp.Description("Número da página a retornar (1-based, default: 1; ex: page: 2 com limit: 100 equivale a offset: 100)")),
+	)
+	s.mcpServer.AddTool(listConstraintsTool, s.handleListConstraints)
+
+	// list_indexes tool
+	listIndexesTool := mcp.NewTool(
+		"list_indexes",
+		mcp.WithDescription("Lista os índices de uma tabela ou do schema inteiro, incluindo unicidade, tipo, colunas ordenadas (ASC/DESC), colunas incluídas (SQL Server/Postgres), predicados de filtro e status."+s.getDynamicDbDescription()),
+		mcp.WithString("db_alias", mcp.Required(), mcp.Description("O alias do banco de dados")),
+		mcp.WithString("table_name", mcp.Description("Nome da tabela para restringir a busca de índices (opcional)")),
+		mcp.WithString("owner", mcp.Description("Schema (ou database no MySQL). Padrão: schema/database padrão da conexão")),
+		mcp.WithString("format", mcp.Description("Formato de saída: json, xml, md, csv, toon. Default: json")),
+		mcp.WithString("csv_separator", mcp.Description("Separador/delimitador de colunas quando format='csv'. Default: ','")),
+		mcp.WithNumber("limit", mcp.Description("Limite máximo de registros a retornar (default: 500, use 0 para sem limite)")),
+		mcp.WithNumber("offset", mcp.Description("Número de registros para pular antes de retornar resultados (default: 0, para paginação)")),
+		mcp.WithNumber("page", mcp.Description("Número da página a retornar (1-based, default: 1)")),
+	)
+	s.mcpServer.AddTool(listIndexesTool, s.handleListIndexes)
+
+	// list_routines tool
+	listRoutinesTool := mcp.NewTool(
+		"list_routines",
+		mcp.WithDescription("Lista rotinas do banco de dados (procedures, functions, triggers e packages), com linguagem, status, datas de criação/modificação e detalhes de eventos/timing para triggers."+s.getDynamicDbDescription()),
+		mcp.WithString("db_alias", mcp.Required(), mcp.Description("O alias do banco de dados")),
+		mcp.WithString("routine_type", mcp.Description("Tipo de rotina: 'PROCEDURE', 'FUNCTION', 'TRIGGER' ou 'PACKAGE' (Oracle). Sem ele, lista todos")),
+		mcp.WithString("name_like", mcp.Description("Filtro por nome com suporte a operador LIKE (ex: 'PRC_%')")),
+		mcp.WithString("table_name", mcp.Description("Apenas para 'TRIGGER': filtra os triggers da tabela especificada")),
+		mcp.WithString("owner", mcp.Description("Schema (ou database no MySQL). Padrão: schema/database padrão da conexão")),
+		mcp.WithString("format", mcp.Description("Formato de saída: json, xml, md, csv, toon. Default: json")),
+		mcp.WithString("csv_separator", mcp.Description("Separador/delimitador de colunas quando format='csv'. Default: ','")),
+		mcp.WithNumber("limit", mcp.Description("Limite máximo de registros a retornar (default: 500, use 0 para sem limite)")),
+		mcp.WithNumber("offset", mcp.Description("Número de registros para pular antes de retornar resultados (default: 0, para paginação)")),
+		mcp.WithNumber("page", mcp.Description("Número da página a retornar (1-based, default: 1)")),
+	)
+	s.mcpServer.AddTool(listRoutinesTool, s.handleListRoutines)
+
+	// get_routine_source tool
+	getRoutineSourceTool := mcp.NewTool(
+		"get_routine_source",
+		mcp.WithDescription("Retorna o código-fonte completo de uma procedure, function, trigger ou package no banco de dados. Retorna erro claro caso a rotina não seja encontrada ou o código esteja criptografado/indisponível."+s.getDynamicDbDescription()),
+		mcp.WithString("db_alias", mcp.Required(), mcp.Description("O alias do banco de dados")),
+		mcp.WithString("routine_name", mcp.Required(), mcp.Description("Nome da rotina")),
+		mcp.WithString("routine_type", mcp.Description("Tipo da rotina para desambiguação ('PROCEDURE', 'FUNCTION', 'TRIGGER', 'PACKAGE')")),
+		mcp.WithString("owner", mcp.Description("Schema (ou database no MySQL). Padrão: schema/database padrão da conexão")),
+		mcp.WithString("format", mcp.Description("Formato de saída: 'json' (default) ou 'md'/'markdown'")),
+	)
+	s.mcpServer.AddTool(getRoutineSourceTool, s.handleGetRoutineSource)
 }
 
 func (s *Server) getDynamicDbDescription() string {
@@ -294,9 +355,9 @@ func buildSummaryMessage(res *db.QueryResult, limit int) (string, string) {
 
 	if res.Truncated || res.Offset > 0 {
 		if res.Truncated {
-			markdownMsg := fmt.Sprintf("\n\n> ⚠️ **Aviso:** Mostrando linhas %d a %d de %s%s (resultados truncados no limite).%s",
+			markdownMsg := fmt.Sprintf("\n\n> ⚠️ **Aviso:** Mostrando linhas %d a %d de %s%s (resultados truncados no limite: truncated: true).%s",
 				startRow, endRow, totalStr, pageInfo, nextPageHint)
-			plainMsg := fmt.Sprintf("⚠️ Aviso: Mostrando linhas %d a %d de %s%s (truncado).%s",
+			plainMsg := fmt.Sprintf("⚠️ Aviso: Mostrando linhas %d a %d de %s%s (truncado: truncated: true).%s",
 				startRow, endRow, totalStr, pageInfo, nextPageHint)
 			return markdownMsg, plainMsg
 		}
@@ -427,6 +488,309 @@ func (s *Server) handleExecuteQuery(ctx context.Context, req mcp.CallToolRequest
 			res.Content = append(res.Content, mcp.NewTextContent(plainSummary))
 		}
 		return res, nil
+	}
+}
+
+func parsePaginationParams(req mcp.CallToolRequest, cfg *config.Config) (int, int) {
+	limit := 500
+	if cfg.DefaultLimit > 0 {
+		limit = cfg.DefaultLimit
+	}
+	if limitArg, exists := req.Params.Arguments["limit"]; exists && limitArg != nil {
+		limit = parseLimit(limitArg, limit)
+	}
+
+	offset := 0
+	if offsetArg, exists := req.Params.Arguments["offset"]; exists && offsetArg != nil {
+		offset = parseLimit(offsetArg, 0)
+		if offset < 0 {
+			offset = 0
+		}
+	} else if pageArg, exists := req.Params.Arguments["page"]; exists && pageArg != nil {
+		page := parseLimit(pageArg, 1)
+		if page > 1 && limit > 0 {
+			offset = (page - 1) * limit
+		}
+	}
+	return limit, offset
+}
+
+func (s *Server) renderPagedResult(
+	paged *db.PagedResult,
+	format string,
+	csvSeparator string,
+) (*mcp.CallToolResult, error) {
+	output, err := formatters.FormatOutput(paged.Rows, format, paged.Columns, formatters.FormatOptions{
+		CSVSeparator: csvSeparator,
+	})
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Erro ao formatar resposta: %v", err)), nil
+	}
+
+	queryRes := &db.QueryResult{
+		Rows:          paged.Rows,
+		Columns:       paged.Columns,
+		ReturnedCount: paged.ReturnedCount,
+		TotalCount:    paged.TotalCount,
+		Offset:        paged.Offset,
+		Truncated:     paged.Truncated,
+	}
+
+	mdSummary, plainSummary := buildSummaryMessage(queryRes, paged.Limit)
+
+	switch strings.ToLower(format) {
+	case "md", "markdown", "llm":
+		if mdSummary != "" {
+			output += mdSummary
+		}
+		return mcp.NewToolResultText(output), nil
+
+	case "toon":
+		if paged.Truncated || paged.Offset > 0 {
+			totalStr := fmt.Sprintf("%d", paged.TotalCount)
+			startRow := paged.Offset + 1
+			endRow := paged.Offset + paged.ReturnedCount
+			output += fmt.Sprintf("\n# paginacao: mostrando linhas %d a %d de %s (truncated: %t; use 'page' ou 'offset' para navegar).", startRow, endRow, totalStr, paged.Truncated)
+		}
+		return mcp.NewToolResultText(output), nil
+
+	default: // "json", "csv", "xml"
+		res := mcp.NewToolResultText(output)
+		if paged.Truncated || paged.Offset > 0 {
+			res.Content = append(res.Content, mcp.NewTextContent(plainSummary))
+		}
+		return res, nil
+	}
+}
+
+func (s *Server) handleListConstraints(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	dbAlias, _ := req.Params.Arguments["db_alias"].(string)
+	tableName, _ := req.Params.Arguments["table_name"].(string)
+	constraintType, _ := req.Params.Arguments["constraint_type"].(string)
+	direction, _ := req.Params.Arguments["direction"].(string)
+	owner, _ := req.Params.Arguments["owner"].(string)
+	format, _ := req.Params.Arguments["format"].(string)
+	csvSeparator := parseStringArg(req.Params.Arguments, "csv_separator", "csv_delimiter", "separator", "delimiter")
+
+	if format == "" {
+		if csvSeparator != "" {
+			format = "csv"
+		} else {
+			format = "json"
+		}
+	}
+
+	if strings.TrimSpace(dbAlias) == "" {
+		return mcp.NewToolResultError("O argumento 'db_alias' é obrigatório."), nil
+	}
+
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Erro ao carregar configuração: %v", err)), nil
+	}
+
+	connDetails, _, exists := cfg.GetConnection(dbAlias)
+	if !exists {
+		return mcp.NewToolResultError(fmt.Sprintf("Conexão '%s' não encontrada.", dbAlias)), nil
+	}
+
+	limit, offset := parsePaginationParams(req, cfg)
+
+	dbConn, dbType, err := s.exec.OpenConnection(connDetails)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Erro ao conectar no banco '%s': %v", dbAlias, err)), nil
+	}
+	defer dbConn.Close()
+
+	resolvedOwner, cleanTable := db.ResolveOwner(connDetails, owner, tableName)
+
+	constraints, err := s.exec.ListConstraints(dbConn, dbType, db.ListConstraintsOptions{
+		Owner:          resolvedOwner,
+		TableName:      cleanTable,
+		ConstraintType: constraintType,
+		Direction:      direction,
+	})
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Erro ao listar constraints: %v", err)), nil
+	}
+
+	rows := make([]map[string]interface{}, 0, len(constraints))
+	for _, c := range constraints {
+		rows = append(rows, c.ToMap())
+	}
+
+	paged := db.PaginateResult(rows, db.ConstraintColumns, limit, offset)
+	return s.renderPagedResult(paged, format, csvSeparator)
+}
+
+func (s *Server) handleListIndexes(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	dbAlias, _ := req.Params.Arguments["db_alias"].(string)
+	tableName, _ := req.Params.Arguments["table_name"].(string)
+	owner, _ := req.Params.Arguments["owner"].(string)
+	format, _ := req.Params.Arguments["format"].(string)
+	csvSeparator := parseStringArg(req.Params.Arguments, "csv_separator", "csv_delimiter", "separator", "delimiter")
+
+	if format == "" {
+		if csvSeparator != "" {
+			format = "csv"
+		} else {
+			format = "json"
+		}
+	}
+
+	if strings.TrimSpace(dbAlias) == "" {
+		return mcp.NewToolResultError("O argumento 'db_alias' é obrigatório."), nil
+	}
+
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Erro ao carregar configuração: %v", err)), nil
+	}
+
+	connDetails, _, exists := cfg.GetConnection(dbAlias)
+	if !exists {
+		return mcp.NewToolResultError(fmt.Sprintf("Conexão '%s' não encontrada.", dbAlias)), nil
+	}
+
+	limit, offset := parsePaginationParams(req, cfg)
+
+	dbConn, dbType, err := s.exec.OpenConnection(connDetails)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Erro ao conectar no banco '%s': %v", dbAlias, err)), nil
+	}
+	defer dbConn.Close()
+
+	resolvedOwner, cleanTable := db.ResolveOwner(connDetails, owner, tableName)
+
+	indexes, err := s.exec.ListIndexes(dbConn, dbType, db.ListIndexesOptions{
+		Owner:     resolvedOwner,
+		TableName: cleanTable,
+	})
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Erro ao listar índices: %v", err)), nil
+	}
+
+	rows := make([]map[string]interface{}, 0, len(indexes))
+	for _, idx := range indexes {
+		rows = append(rows, idx.ToMap())
+	}
+
+	paged := db.PaginateResult(rows, db.IndexColumns, limit, offset)
+	return s.renderPagedResult(paged, format, csvSeparator)
+}
+
+func (s *Server) handleListRoutines(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	dbAlias, _ := req.Params.Arguments["db_alias"].(string)
+	routineType, _ := req.Params.Arguments["routine_type"].(string)
+	nameLike, _ := req.Params.Arguments["name_like"].(string)
+	tableName, _ := req.Params.Arguments["table_name"].(string)
+	owner, _ := req.Params.Arguments["owner"].(string)
+	format, _ := req.Params.Arguments["format"].(string)
+	csvSeparator := parseStringArg(req.Params.Arguments, "csv_separator", "csv_delimiter", "separator", "delimiter")
+
+	if format == "" {
+		if csvSeparator != "" {
+			format = "csv"
+		} else {
+			format = "json"
+		}
+	}
+
+	if strings.TrimSpace(dbAlias) == "" {
+		return mcp.NewToolResultError("O argumento 'db_alias' é obrigatório."), nil
+	}
+
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Erro ao carregar configuração: %v", err)), nil
+	}
+
+	connDetails, _, exists := cfg.GetConnection(dbAlias)
+	if !exists {
+		return mcp.NewToolResultError(fmt.Sprintf("Conexão '%s' não encontrada.", dbAlias)), nil
+	}
+
+	limit, offset := parsePaginationParams(req, cfg)
+
+	dbConn, dbType, err := s.exec.OpenConnection(connDetails)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Erro ao conectar no banco '%s': %v", dbAlias, err)), nil
+	}
+	defer dbConn.Close()
+
+	resolvedOwner, cleanTable := db.ResolveOwner(connDetails, owner, tableName)
+
+	routines, err := s.exec.ListRoutines(dbConn, dbType, db.ListRoutinesOptions{
+		Owner:       resolvedOwner,
+		RoutineType: routineType,
+		NameLike:    nameLike,
+		TableName:   cleanTable,
+	})
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Erro ao listar rotinas: %v", err)), nil
+	}
+
+	rows := make([]map[string]interface{}, 0, len(routines))
+	for _, r := range routines {
+		rows = append(rows, r.ToMap())
+	}
+
+	paged := db.PaginateResult(rows, db.RoutineColumns, limit, offset)
+	return s.renderPagedResult(paged, format, csvSeparator)
+}
+
+func (s *Server) handleGetRoutineSource(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	dbAlias, _ := req.Params.Arguments["db_alias"].(string)
+	routineName, _ := req.Params.Arguments["routine_name"].(string)
+	routineType, _ := req.Params.Arguments["routine_type"].(string)
+	owner, _ := req.Params.Arguments["owner"].(string)
+	format, _ := req.Params.Arguments["format"].(string)
+
+	if strings.TrimSpace(dbAlias) == "" || strings.TrimSpace(routineName) == "" {
+		return mcp.NewToolResultError("Os argumentos 'db_alias' e 'routine_name' são obrigatórios."), nil
+	}
+
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Erro ao carregar configuração: %v", err)), nil
+	}
+
+	connDetails, _, exists := cfg.GetConnection(dbAlias)
+	if !exists {
+		return mcp.NewToolResultError(fmt.Sprintf("Conexão '%s' não encontrada.", dbAlias)), nil
+	}
+
+	dbConn, dbType, err := s.exec.OpenConnection(connDetails)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Erro ao conectar no banco '%s': %v", dbAlias, err)), nil
+	}
+	defer dbConn.Close()
+
+	resolvedOwner, cleanRoutine := db.ResolveOwner(connDetails, owner, routineName)
+
+	res, err := s.exec.GetRoutineSource(dbConn, dbType, db.GetRoutineSourceOptions{
+		Owner:       resolvedOwner,
+		RoutineName: cleanRoutine,
+		RoutineType: routineType,
+	})
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+
+	switch strings.ToLower(strings.TrimSpace(format)) {
+	case "md", "markdown", "llm":
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("### Rotina: `%s`.`%s` (%s)\n\n", res.Owner, res.RoutineName, res.RoutineType))
+		sb.WriteString("```sql\n")
+		sb.WriteString(res.Source)
+		sb.WriteString("\n```")
+		return mcp.NewToolResultText(sb.String()), nil
+	default:
+		data, err := json.MarshalIndent(res, "", "  ")
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Erro ao serializar fonte: %v", err)), nil
+		}
+		return mcp.NewToolResultText(string(data)), nil
 	}
 }
 

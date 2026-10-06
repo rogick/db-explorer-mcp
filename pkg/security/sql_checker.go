@@ -213,3 +213,35 @@ func IsSafeQuery(query string, mode string) CheckResult {
 
 	return CheckResult{IsSafe: true, ErrorMsg: ""}
 }
+
+// ValidateIdentifier valida se uma string de identificador (nome de tabela, schema, rotina)
+// contém apenas caracteres seguros. Rejeita caracteres perigosos como ponto-e-vírgula, aspas, crase e comentários.
+func ValidateIdentifier(name string) error {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return nil
+	}
+	dangerousChars := []string{";", "--", "/*", "*/", "'", "\"", "`", "\x00", "\n", "\r"}
+	for _, ch := range dangerousChars {
+		if strings.Contains(trimmed, ch) {
+			return fmt.Errorf("identificador inválido: contém caracteres suspeitos ou não permitidos (%q)", ch)
+		}
+	}
+	return nil
+}
+
+// ValidateLikePattern valida strings usadas como filtro LIKE (como name_like).
+func ValidateLikePattern(pattern string) error {
+	trimmed := strings.TrimSpace(pattern)
+	if trimmed == "" {
+		return nil
+	}
+	dangerousChars := []string{";", "--", "/*", "*/", "'", "\"", "`", "\x00", "\n", "\r"}
+	for _, ch := range dangerousChars {
+		if strings.Contains(trimmed, ch) {
+			return fmt.Errorf("filtro LIKE inválido: contém caracteres suspeitos ou não permitidos (%q)", ch)
+		}
+	}
+	return nil
+}
+

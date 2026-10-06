@@ -74,3 +74,60 @@ func TestIsSafeQueryTesteMode(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateIdentifier(t *testing.T) {
+	valid := []string{
+		"users",
+		"public.users",
+		"dbo.orders",
+		"MY_TABLE_123",
+		"schema.table_name",
+		"",
+	}
+	for _, id := range valid {
+		if err := ValidateIdentifier(id); err != nil {
+			t.Errorf("Esperado identificador válido para %q, obteve erro: %v", id, err)
+		}
+	}
+
+	invalid := []string{
+		"users; DROP TABLE clients;",
+		"users' OR 1=1 --",
+		`users" OR "1"="1"`,
+		"users` WHERE 1=1",
+		"table--comment",
+		"table/*comment*/",
+		"table\nname",
+	}
+	for _, id := range invalid {
+		if err := ValidateIdentifier(id); err == nil {
+			t.Errorf("Esperado erro para identificador malicioso %q, mas passou", id)
+		}
+	}
+}
+
+func TestValidateLikePattern(t *testing.T) {
+	valid := []string{
+		"PRC_%",
+		"%user%",
+		"fn_calc",
+		"",
+	}
+	for _, p := range valid {
+		if err := ValidateLikePattern(p); err != nil {
+			t.Errorf("Esperado padrão LIKE válido para %q, obteve erro: %v", p, err)
+		}
+	}
+
+	invalid := []string{
+		"prc%; DROP TABLE x;",
+		"prc' OR 1=1",
+		"prc`",
+	}
+	for _, p := range invalid {
+		if err := ValidateLikePattern(p); err == nil {
+			t.Errorf("Esperado erro para padrão LIKE perigoso %q, mas passou", p)
+		}
+	}
+}
+

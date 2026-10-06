@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -342,3 +343,193 @@ func TestHandleExecuteQueryValidation(t *testing.T) {
 		t.Errorf("Esperado resultado de erro para conexão inexistente")
 	}
 }
+
+func TestNewToolsRegistration(t *testing.T) {
+	srv := NewServer()
+	if srv == nil {
+		t.Fatal("Esperado servidor não nulo")
+	}
+
+	// Testa se as 4 novas tools respondem para requisições com validação de parâmetros obrigatórios
+	tools := []struct {
+		name      string
+		handler   func(context.Context, mcp_lib.CallToolRequest) (*mcp_lib.CallToolResult, error)
+		emptyArgs map[string]interface{}
+	}{
+		{
+			name:    "list_constraints",
+			handler: srv.handleListConstraints,
+			emptyArgs: map[string]interface{}{},
+		},
+		{
+			name:    "list_indexes",
+			handler: srv.handleListIndexes,
+			emptyArgs: map[string]interface{}{},
+		},
+		{
+			name:    "list_routines",
+			handler: srv.handleListRoutines,
+			emptyArgs: map[string]interface{}{},
+		},
+		{
+			name:    "get_routine_source",
+			handler: srv.handleGetRoutineSource,
+			emptyArgs: map[string]interface{}{},
+		},
+	}
+
+	for _, tt := range tools {
+		t.Run(tt.name, func(t *testing.T) {
+			var req mcp_lib.CallToolRequest
+			req.Params.Name = tt.name
+			req.Params.Arguments = tt.emptyArgs
+
+			res, err := tt.handler(nil, req)
+			if err != nil {
+				t.Fatalf("Erro inesperado retornado: %v", err)
+			}
+			if !res.IsError {
+				t.Errorf("Esperado erro para tool %s sem argumentos obrigatórios", tt.name)
+			}
+		})
+	}
+}
+
+func TestHandleListConstraintsValidation(t *testing.T) {
+	srv := NewServer()
+
+	// Conexão inexistente
+	var req mcp_lib.CallToolRequest
+	req.Params.Name = "list_constraints"
+	req.Params.Arguments = map[string]interface{}{
+		"db_alias": "alias_inexistente_123",
+	}
+
+	res, err := srv.handleListConstraints(nil, req)
+	if err != nil {
+		t.Fatalf("Erro inesperado: %v", err)
+	}
+	if !res.IsError {
+		t.Errorf("Esperado erro para conexão inexistente")
+	}
+}
+
+func TestHandleListIndexesValidation(t *testing.T) {
+	srv := NewServer()
+
+	var req mcp_lib.CallToolRequest
+	req.Params.Name = "list_indexes"
+	req.Params.Arguments = map[string]interface{}{
+		"db_alias": "alias_inexistente_123",
+	}
+
+	res, err := srv.handleListIndexes(nil, req)
+	if err != nil {
+		t.Fatalf("Erro inesperado: %v", err)
+	}
+	if !res.IsError {
+		t.Errorf("Esperado erro para conexão inexistente")
+	}
+}
+
+func TestHandleListRoutinesValidation(t *testing.T) {
+	srv := NewServer()
+
+	var req mcp_lib.CallToolRequest
+	req.Params.Name = "list_routines"
+	req.Params.Arguments = map[string]interface{}{
+		"db_alias": "alias_inexistente_123",
+	}
+
+	res, err := srv.handleListRoutines(nil, req)
+	if err != nil {
+		t.Fatalf("Erro inesperado: %v", err)
+	}
+	if !res.IsError {
+		t.Errorf("Esperado erro para conexão inexistente")
+	}
+}
+
+func TestHandleGetRoutineSourceValidation(t *testing.T) {
+	srv := NewServer()
+
+	// Apenas db_alias sem routine_name
+	var req mcp_lib.CallToolRequest
+	req.Params.Name = "get_routine_source"
+	req.Params.Arguments = map[string]interface{}{
+		"db_alias": "meu_banco",
+	}
+
+	res, err := srv.handleGetRoutineSource(nil, req)
+	if err != nil {
+		t.Fatalf("Erro inesperado: %v", err)
+	}
+	if !res.IsError {
+		t.Errorf("Esperado erro para routine_name ausente")
+	}
+
+	// Com routine_name mas conexão inexistente
+	req.Params.Arguments = map[string]interface{}{
+		"db_alias":     "alias_inexistente_123",
+		"routine_name": "prc_processa",
+	}
+
+	res2, err := srv.handleGetRoutineSource(nil, req)
+	if err != nil {
+		t.Fatalf("Erro inesperado: %v", err)
+	}
+	if !res2.IsError {
+		t.Errorf("Esperado erro para conexão inexistente")
+	}
+}
+
+func TestRenderPagedResult_TruncatedFlag(t *testing.T) {
+	srv := NewServer()
+
+	paged := &db.PagedResult{
+		Rows: []map[string]interface{}{
+			{"id": 1, "nome": "item 1"},
+			{"id": 2, "nome": "item 2"},
+		},
+		Columns:       []string{"id", "nome"},
+		ReturnedCount: 2,
+		TotalCount:    10,
+		Offset:        0,
+		Limit:         2,
+		Truncated:     true,
+	}
+
+	// Teste em formato markdown
+	resMd, err := srv.renderPagedResult(paged, "md", "")
+	if err != nil {
+		t.Fatalf("Erro ao renderizar markdown: %v", err)
+	}
+	mdText := resMd.Content[0].(mcp_lib.TextContent).Text
+	if !strings.Contains(mdText, "truncated: true") {
+		t.Errorf("Esperado aviso com 'truncated: true' no markdown, obteve: %s", mdText)
+	}
+
+	// Teste em formato json
+	resJson, err := srv.renderPagedResult(paged, "json", "")
+	if err != nil {
+		t.Fatalf("Erro ao renderizar json: %v", err)
+	}
+	if len(resJson.Content) < 2 {
+		t.Fatalf("Esperado conteúdo extra com aviso de truncamento em JSON")
+	}
+	jsonSummary := resJson.Content[1].(mcp_lib.TextContent).Text
+	if !strings.Contains(jsonSummary, "truncated: true") {
+		t.Errorf("Esperado aviso com 'truncated: true' no resumo do JSON, obteve: %s", jsonSummary)
+	}
+
+	// Teste em formato toon
+	resToon, err := srv.renderPagedResult(paged, "toon", "")
+	if err != nil {
+		t.Fatalf("Erro ao renderizar toon: %v", err)
+	}
+	toonText := resToon.Content[0].(mcp_lib.TextContent).Text
+	if !strings.Contains(toonText, "truncated: true") {
+		t.Errorf("Esperado aviso com 'truncated: true' no formato toon, obteve: %s", toonText)
+	}
+}
+
