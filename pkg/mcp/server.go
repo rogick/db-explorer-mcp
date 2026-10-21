@@ -73,7 +73,7 @@ func (s *Server) registerTools() {
 		mcp.WithDescription("Executa uma consulta SQL no banco especificado. As operações permitidas dependem do modo de cada conexão: modo 'teste' permite TODAS as operações incluindo DROP, DELETE e TRUNCATE; modo 'normal' permite SELECT, CREATE, ALTER, INSERT, UPDATE mas bloqueia DROP, DELETE e TRUNCATE; modo 'readonly' permite apenas SELECT."+s.getDynamicDbDescription()),
 		mcp.WithString("db_alias", mcp.Required(), mcp.Description("O alias do banco de dados")),
 		mcp.WithString("query", mcp.Required(), mcp.Description("A consulta SQL a ser executada")),
-		mcp.WithString("format", mcp.Description("Formato de saída: json, xml, md, csv, toon. Default: json")),
+		mcp.WithString("format", mcp.Description("Formato de saída: json, xml, md, csv, toon. Default: md")),
 		mcp.WithString("csv_separator", mcp.Description("Separador/delimitador de colunas quando format='csv' (ex: ',', ';', '\\t', '|'). Default: ','")),
 		mcp.WithNumber("limit", mcp.Description("Limite máximo de linhas a retornar (default: 500, use 0 para sem limite)")),
 		mcp.WithNumber("offset", mcp.Description("Número de linhas para pular antes de retornar resultados (default: 0, para paginação)")),
@@ -380,20 +380,24 @@ func buildSummaryMessage(res *db.QueryResult, limit int) (string, string) {
 	return markdownMsg, plainMsg
 }
 
+func resolveQueryFormat(format string, csvSeparator string) string {
+	format = strings.TrimSpace(format)
+	if format == "" {
+		if csvSeparator != "" {
+			return "csv"
+		}
+		return "md"
+	}
+	return format
+}
+
 func (s *Server) handleExecuteQuery(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	dbAlias, _ := req.Params.Arguments["db_alias"].(string)
 	query, _ := req.Params.Arguments["query"].(string)
 	format, _ := req.Params.Arguments["format"].(string)
 
 	csvSeparator := parseStringArg(req.Params.Arguments, "csv_separator", "csv_delimiter", "separator", "delimiter")
-
-	if format == "" {
-		if csvSeparator != "" {
-			format = "csv"
-		} else {
-			format = "json"
-		}
-	}
+	format = resolveQueryFormat(format, csvSeparator)
 
 	if dbAlias == "" || query == "" {
 		return mcp.NewToolResultError("Os argumentos 'db_alias' e 'query' são obrigatórios."), nil

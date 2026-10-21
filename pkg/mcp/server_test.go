@@ -344,6 +344,36 @@ func TestHandleExecuteQueryValidation(t *testing.T) {
 	}
 }
 
+func TestResolveQueryFormat(t *testing.T) {
+	tests := []struct {
+		name         string
+		format       string
+		csvSeparator string
+		expected     string
+	}{
+		{"Default format when empty", "", "", "md"},
+		{"Default format when spaces only", "   ", "", "md"},
+		{"CSV fallback when separator specified and format empty", "", ";", "csv"},
+		{"CSV fallback with tab delimiter", "", "\t", "csv"},
+		{"Explicit JSON", "json", "", "json"},
+		{"Explicit XML", "xml", "", "xml"},
+		{"Explicit TOON", "toon", "", "toon"},
+		{"Explicit MD", "md", "", "md"},
+		{"Explicit Markdown", "markdown", "", "markdown"},
+		{"Explicit CSV with separator", "csv", ";", "csv"},
+		{"Explicit format overrides separator", "json", ";", "json"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := resolveQueryFormat(tt.format, tt.csvSeparator)
+			if got != tt.expected {
+				t.Errorf("resolveQueryFormat(%q, %q) = %q; esperado %q", tt.format, tt.csvSeparator, got, tt.expected)
+			}
+		})
+	}
+}
+
 func TestNewToolsRegistration(t *testing.T) {
 	srv := NewServer()
 	if srv == nil {
