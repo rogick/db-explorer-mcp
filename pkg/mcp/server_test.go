@@ -2,11 +2,20 @@ package mcp
 
 import (
 	"context"
+	"database/sql"
+	"database/sql/driver"
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	mcp_lib "github.com/mark3labs/mcp-go/mcp"
 	"github.com/rogick/db-explorer-mcp/pkg/db"
+	"github.com/rogick/db-explorer-mcp/pkg/tempfile"
 )
 
 func TestParseLimit(t *testing.T) {
@@ -560,6 +569,205 @@ func TestRenderPagedResult_TruncatedFlag(t *testing.T) {
 	toonText := resToon.Content[0].(mcp_lib.TextContent).Text
 	if !strings.Contains(toonText, "truncated: true") {
 		t.Errorf("Esperado aviso com 'truncated: true' no formato toon, obteve: %s", toonText)
+	}
+}
+
+type mcpMockLobDriver struct{}
+
+func (d *mcpMockLobDriver) Open(name string) (driver.Conn, error) {
+	return &mcpMockLobConn{}, nil
+}
+
+type mcpMockLobConn struct{}
+
+func (c *mcpMockLobConn) Prepare(query string) (driver.Stmt, error) {
+	return nil, fmt.Errorf("prepare não implementado")
+}
+func (c *mcpMockLobConn) Close() error              { return nil }
+func (c *mcpMockLobConn) Begin() (driver.Tx, error) { return nil, fmt.Errorf("tx não implementada") }
+func (c *mcpMockLobConn) Query(query string, args []driver.Value) (driver.Rows, error) {
+	return &mcpMockLobRows{}, nil
+}
+
+type mcpMockLobRows struct {
+	current int
+}
+
+func (r *mcpMockLobRows) Columns() []string {
+	return []string{"id", "cliente_id", "tipo_evento", "payload_xml", "data_evento"}
+}
+
+func (r *mcpMockLobRows) ColumnTypeDatabaseTypeName(index int) string {
+	if index == 3 {
+		return "CLOB"
+	}
+	return "VARCHAR2"
+}
+
+func (r *mcpMockLobRows) Close() error { return nil }
+
+func (r *mcpMockLobRows) Next(dest []driver.Value) error {
+	if r.current >= 2 {
+		return io.EOF
+	}
+	r.current++
+	dest[0] = int64(1022 + r.current)
+	dest[1] = int64(45)
+	dest[2] = "NFE_EMISSAO"
+	dest[3] = fmt.Sprintf("<NFe><infNFe Id=\"%d\">%s</infNFe></NFe>", r.current, strings.Repeat("A", 3000))
+	dest[4] = "2026-10-30 10:15:00"
+	return nil
+}
+
+func init() {
+	sql.Register("mcp_mock_lob_db", &mcpMockLobDriver{})
+}
+
+func TestExecuteQuery_SaveToFile(t *testing.T) {
+	srv := NewServer()
+	tmpDir := t.TempDir()
+	srv.tempMgr = tempfile.NewManagerWithDir(tmpDir)
+
+	dbConn, err := sql.Open("mcp_mock_lob_db", "test")
+	if err != nil {
+		t.Fatalf("Erro ao abrir mock db: %v", err)
+	}
+	defer dbConn.Close()
+
+	queryRes, err := srv.exec.ExecuteQueryWithOptions(dbConn, "SELECT * FROM nfe_eventos", db.ExecuteQueryOptions{
+		Limit:  500,
+		Offset: 0,
+	})
+	if err != nil {
+		t.Fatalf("Erro ao executar query: %v", err)
+	}
+
+	res, err := srv.processQueryExecutionResult("crm_oracle", queryRes, "json", "", 500, true, "")
+	if err != nil {
+		t.Fatalf("Erro ao processar resultado com save_to_file: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("Resultado inesperado de erro: %v", res)
+	}
+
+	text := res.Content[0].(mcp_lib.TextContent).Text
+	var savedResp SavedQueryResponse
+	if err := json.Unmarshal([]byte(text), &savedResp); err != nil {
+		t.Fatalf("Resposta não é um JSON válido de SavedQueryResponse: %v\nTexto: %s", err, text)
+	}
+
+	if !savedResp.SavedToFile {
+		t.Errorf("Esperado saved_to_file=true")
+	}
+	if savedResp.RowCount != 2 {
+		t.Errorf("Esperado row_count=2, obteve %d", savedResp.RowCount)
+	}
+	if savedResp.Format != "json" {
+		t.Errorf("Esperado format='json', obteve %q", savedResp.Format)
+	}
+	if len(savedResp.Columns) != 5 {
+		t.Errorf("Esperado 5 colunas, obteve %v", savedResp.Columns)
+	}
+	if savedResp.Preview == "" {
+		t.Errorf("Preview não deveria estar vazio")
+	}
+	if !strings.Contains(savedResp.Hint, "economizar tokens") {
+		t.Errorf("Hint inesperado: %s", savedResp.Hint)
+	}
+
+	// Verifica se o arquivo foi realmente gravado no diretório temporário isolado
+	if !strings.HasPrefix(savedResp.FilePath, tmpDir) {
+		t.Errorf("Arquivo salvo fora do diretório isolado: %s (esperado prefixo %s)", savedResp.FilePath, tmpDir)
+	}
+	fileBytes, err := os.ReadFile(savedResp.FilePath)
+	if err != nil {
+		t.Fatalf("Erro ao ler arquivo salvo %s: %v", savedResp.FilePath, err)
+	}
+	if !strings.Contains(string(fileBytes), "NFE_EMISSAO") {
+		t.Errorf("Conteúdo do arquivo salvo não contém os dados esperados")
+	}
+}
+
+func TestExecuteQuery_LobToFile(t *testing.T) {
+	srv := NewServer()
+	tmpDir := t.TempDir()
+	srv.tempMgr = tempfile.NewManagerWithDir(tmpDir)
+
+	dbConn, err := sql.Open("mcp_mock_lob_db", "test")
+	if err != nil {
+		t.Fatalf("Erro ao abrir mock db: %v", err)
+	}
+	defer dbConn.Close()
+
+	queryRes, err := srv.exec.ExecuteQueryWithOptions(dbConn, "SELECT * FROM nfe_eventos", db.ExecuteQueryOptions{
+		Limit:        500,
+		Offset:       0,
+		ExtractLOBs:  true,
+		LOBThreshold: 2048,
+		TempManager:  srv.tempMgr,
+	})
+	if err != nil {
+		t.Fatalf("Erro ao executar query com lob_to_file: %v", err)
+	}
+
+	res, err := srv.processQueryExecutionResult("crm_oracle", queryRes, "md", "", 500, false, "")
+	if err != nil {
+		t.Fatalf("Erro ao renderizar tabela com lob_to_file: %v", err)
+	}
+
+	mdText := res.Content[0].(mcp_lib.TextContent).Text
+	if !strings.Contains(mdText, "NFE_EMISSAO") {
+		t.Errorf("Tabela Markdown deveria conter colunas normais ('NFE_EMISSAO'): %s", mdText)
+	}
+	if !strings.Contains(mdText, "[LOB salvo em: ") {
+		t.Errorf("Tabela Markdown deveria conter marcador '[LOB salvo em: ...]', obteve:\n%s", mdText)
+	}
+	if strings.Contains(mdText, strings.Repeat("A", 100)) {
+		t.Errorf("Tabela Markdown não deveria conter o payload bruto do LOB inline")
+	}
+
+	if len(queryRes.LobFiles) != 2 {
+		t.Fatalf("Esperado 2 arquivos LOB gerados, obteve %d", len(queryRes.LobFiles))
+	}
+	for _, lobPath := range queryRes.LobFiles {
+		if filepath.Ext(lobPath) != ".xml" {
+			t.Errorf("Extensão esperada .xml para LOB XML, obteve %s", filepath.Ext(lobPath))
+		}
+		data, err := os.ReadFile(lobPath)
+		if err != nil {
+			t.Fatalf("Arquivo LOB não encontrado em %s: %v", lobPath, err)
+		}
+		if !strings.HasPrefix(string(data), "<NFe>") {
+			t.Errorf("Conteúdo do arquivo LOB inválido")
+		}
+	}
+}
+
+func TestTempDirIsolationAndCleanup(t *testing.T) {
+	tmpDir := t.TempDir()
+	mgr := tempfile.NewManagerWithDir(tmpDir)
+
+	customFile := filepath.Join(tmpDir, "custom_export", "relatorio.md")
+	info, err := mgr.CreateQueryResultFile("erp_db", "md", "| id |\n| --- |\n| 1 |", customFile)
+	if err != nil {
+		t.Fatalf("Erro ao criar arquivo com file_path customizado: %v", err)
+	}
+	if info.FilePath != customFile {
+		t.Errorf("Esperado caminho %s, obteve %s", customFile, info.FilePath)
+	}
+
+	lobInfo, err := mgr.CreateLobFile("xml_col", 1, []byte("<root></root>"))
+	if err != nil {
+		t.Fatalf("Erro ao criar LOB no tempDir: %v", err)
+	}
+	oldTime := time.Now().Add(-30 * time.Hour)
+	_ = os.Chtimes(lobInfo.FilePath, oldTime, oldTime)
+
+	if err := mgr.CleanupOldFiles(24 * time.Hour); err != nil {
+		t.Fatalf("Erro na limpeza: %v", err)
+	}
+	if _, err := os.Stat(lobInfo.FilePath); !os.IsNotExist(err) {
+		t.Errorf("Arquivo LOB expirado deveria ter sido removido")
 	}
 }
 

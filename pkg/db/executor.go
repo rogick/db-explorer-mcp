@@ -15,6 +15,8 @@ import (
 	go_ora "github.com/sijms/go-ora/v2"
 
 	"github.com/rogick/db-explorer-mcp/pkg/config"
+	"github.com/rogick/db-explorer-mcp/pkg/tempfile"
+	"unicode/utf8"
 )
 
 type Executor struct{}
@@ -229,6 +231,16 @@ func (e *Executor) GetTableSchema(db *sql.DB, dbType string, tableName string, d
 	}
 }
 
+const DefaultLOBThresholdBytes = 2048
+
+type ExecuteQueryOptions struct {
+	Limit        int
+	Offset       int
+	ExtractLOBs  bool
+	LOBThreshold int
+	TempManager  *tempfile.TempFileManager
+}
+
 type QueryResult struct {
 	Rows            []map[string]interface{}
 	Columns         []string
@@ -237,9 +249,64 @@ type QueryResult struct {
 	Offset          int
 	Truncated       bool
 	ExceededCeiling bool
+	LobFiles        []string
+}
+
+// IsLobColumnType verifica se o tipo de dados informado pelo driver SQL corresponde a um tipo LOB ou texto/binário longo.
+func IsLobColumnType(dbTypeName string) bool {
+	upper := strings.ToUpper(strings.TrimSpace(dbTypeName))
+	switch upper {
+	case "CLOB", "BLOB", "NCLOB", "LONG", "LONG RAW", "BFILE", "XMLTYPE",
+		"TEXT", "BYTEA", "XML", "JSON", "JSONB",
+		"VARCHAR(MAX)", "NVARCHAR(MAX)", "VARBINARY(MAX)", "NTEXT", "IMAGE",
+		"LONGTEXT", "MEDIUMTEXT", "LONGBLOB", "MEDIUMBLOB":
+		return true
+	}
+	return false
+}
+
+// IsDedicatedLobColumnType identifica tipos exclusivos de LOB/binário que sempre devem ser extraídos quando não vazios.
+func IsDedicatedLobColumnType(dbTypeName string) bool {
+	upper := strings.ToUpper(strings.TrimSpace(dbTypeName))
+	switch upper {
+	case "CLOB", "BLOB", "NCLOB", "LONG", "LONG RAW", "BFILE", "XMLTYPE",
+		"BYTEA", "XML",
+		"VARBINARY(MAX)", "NTEXT", "IMAGE",
+		"LONGTEXT", "MEDIUMTEXT", "LONGBLOB", "MEDIUMBLOB":
+		return true
+	}
+	return false
+}
+
+func isBinaryBytes(data []byte) bool {
+	if len(data) == 0 {
+		return false
+	}
+	sampleSize := len(data)
+	if sampleSize > 8192 {
+		sampleSize = 8192
+	}
+	sample := data[:sampleSize]
+	for _, b := range sample {
+		if b == 0 {
+			return true
+		}
+	}
+	checkLen := sampleSize
+	if checkLen > 4 {
+		checkLen -= 4
+	}
+	return !utf8.Valid(sample[:checkLen])
 }
 
 func (e *Executor) ExecuteQuery(db *sql.DB, query string, limit int, offset int) (*QueryResult, error) {
+	return e.ExecuteQueryWithOptions(db, query, ExecuteQueryOptions{
+		Limit:  limit,
+		Offset: offset,
+	})
+}
+
+func (e *Executor) ExecuteQueryWithOptions(db *sql.DB, query string, opts ExecuteQueryOptions) (*QueryResult, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -273,17 +340,42 @@ func (e *Executor) ExecuteQuery(db *sql.DB, query string, limit int, offset int)
 		return nil, err
 	}
 
+	colTypeNames := make([]string, len(cols))
+	if colTypes, err := rows.ColumnTypes(); err == nil && len(colTypes) == len(cols) {
+		for i, ct := range colTypes {
+			if ct != nil {
+				colTypeNames[i] = ct.DatabaseTypeName()
+			}
+		}
+	}
+
+	lobThreshold := opts.LOBThreshold
+	if lobThreshold <= 0 {
+		lobThreshold = DefaultLOBThresholdBytes
+	}
+
+	var tempMgr *tempfile.TempFileManager
+	if opts.ExtractLOBs {
+		if opts.TempManager != nil {
+			tempMgr = opts.TempManager
+		} else {
+			tempMgr = tempfile.NewManager()
+		}
+	}
+
 	var results []map[string]interface{}
+	var lobFiles []string
 	count := 0
 	totalCount := 0
 	truncated := false
 	exceededCeiling := false
 
+	offset := opts.Offset
 	if offset < 0 {
 		offset = 0
 	}
 
-	maxFetchLimit := limit
+	maxFetchLimit := opts.Limit
 	if maxFetchLimit <= 0 {
 		maxFetchLimit = 50000 // teto de segurança para consultas sem limite
 	}
@@ -313,6 +405,37 @@ func (e *Executor) ExecuteQuery(db *sql.DB, query string, limit int, offset int)
 			rowMap := make(map[string]interface{}, len(cols))
 			for i, col := range cols {
 				val := values[i]
+				if opts.ExtractLOBs && val != nil {
+					var rawBytes []byte
+					var isByteSlice bool
+					var isCandidate bool
+
+					switch v := val.(type) {
+					case []byte:
+						rawBytes = v
+						isByteSlice = true
+						isCandidate = true
+					case string:
+						rawBytes = []byte(v)
+						isCandidate = true
+					}
+
+					if isCandidate && len(rawBytes) > 0 {
+						shouldExtract := len(rawBytes) >= lobThreshold ||
+							IsDedicatedLobColumnType(colTypeNames[i]) ||
+							(isByteSlice && isBinaryBytes(rawBytes))
+
+						if shouldExtract {
+							info, lobErr := tempMgr.CreateLobFile(col, count, rawBytes)
+							if lobErr == nil {
+								rowMap[col] = fmt.Sprintf("[LOB salvo em: %s (%s)]", info.FilePath, info.ShortSize)
+								lobFiles = append(lobFiles, info.FilePath)
+								continue
+							}
+						}
+					}
+				}
+
 				if b, ok := val.([]byte); ok {
 					rowMap[col] = string(b)
 				} else {
@@ -344,5 +467,6 @@ func (e *Executor) ExecuteQuery(db *sql.DB, query string, limit int, offset int)
 		Offset:          offset,
 		Truncated:       truncated,
 		ExceededCeiling: exceededCeiling,
+		LobFiles:        lobFiles,
 	}, nil
 }

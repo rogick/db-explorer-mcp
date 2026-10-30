@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -14,6 +15,7 @@ import (
 	"github.com/rogick/db-explorer-mcp/pkg/db"
 	"github.com/rogick/db-explorer-mcp/pkg/formatters"
 	"github.com/rogick/db-explorer-mcp/pkg/security"
+	"github.com/rogick/db-explorer-mcp/pkg/tempfile"
 )
 
 // Version holds the current version of the MCP server, injected during build via -ldflags
@@ -22,12 +24,19 @@ var Version = "dev"
 type Server struct {
 	mcpServer *mcpserver.MCPServer
 	exec      *db.Executor
+	tempMgr   *tempfile.TempFileManager
 }
 
 func NewServer() *Server {
 	s := &Server{
-		exec: db.NewExecutor(),
+		exec:    db.NewExecutor(),
+		tempMgr: tempfile.NewManager(),
 	}
+
+	// Limpeza assíncrona de arquivos temporários com mais de 24 horas
+	go func() {
+		_ = s.tempMgr.CleanupOldFiles(24 * time.Hour)
+	}()
 
 	mcpSrv := mcpserver.NewMCPServer(
 		"db-explorer-mcp",
@@ -70,7 +79,7 @@ func (s *Server) registerTools() {
 	// execute_query tool
 	execQueryTool := mcp.NewTool(
 		"execute_query",
-		mcp.WithDescription("Executa uma consulta SQL no banco especificado. As operações permitidas dependem do modo de cada conexão: modo 'teste' permite TODAS as operações incluindo DROP, DELETE e TRUNCATE; modo 'normal' permite SELECT, CREATE, ALTER, INSERT, UPDATE mas bloqueia DROP, DELETE e TRUNCATE; modo 'readonly' permite apenas SELECT."+s.getDynamicDbDescription()),
+		mcp.WithDescription("Executa uma consulta SQL no banco especificado. As operações permitidas dependem do modo de cada conexão: modo 'teste' permite TODAS as operações incluindo DROP, DELETE e TRUNCATE; modo 'normal' permite SELECT, CREATE, ALTER, INSERT, UPDATE mas bloqueia DROP, DELETE e TRUNCATE; modo 'readonly' permite apenas SELECT. DICA PARA ECONOMIA DE TOKENS: Ao consultar tabelas de logs, NF-e, XMLs, JSONs de integração ou colunas CLOB/BLOB/TEXT extensas, utilize 'lob_to_file: true' para extrair automaticamente os campos pesados para arquivos temporários mantendo a tabela enxuta, ou 'save_to_file: true' para salvar todo o resultado em disco."+s.getDynamicDbDescription()),
 		mcp.WithString("db_alias", mcp.Required(), mcp.Description("O alias do banco de dados")),
 		mcp.WithString("query", mcp.Required(), mcp.Description("A consulta SQL a ser executada")),
 		mcp.WithString("format", mcp.Description("Formato de saída: json, xml, md, csv, toon. Default: md")),
@@ -78,6 +87,10 @@ func (s *Server) registerTools() {
 		mcp.WithNumber("limit", mcp.Description("Limite máximo de linhas a retornar (default: 500, use 0 para sem limite)")),
 		mcp.WithNumber("offset", mcp.Description("Número de linhas para pular antes de retornar resultados (default: 0, para paginação)")),
 		mcp.WithNumber("page", mcp.Description("Número da página a retornar (1-based, default: 1; ex: page: 2 com limit: 100 equivale a offset: 100)")),
+		mcp.WithBoolean("save_to_file", mcp.Description("Se true, salva todo o resultado formatado em um arquivo temporário no disco e retorna apenas o caminho do arquivo, tamanho e um preview inicial. Altamente recomendado para consultas volumosas ou para economia de tokens.")),
+		mcp.WithBoolean("lob_to_file", mcp.Description("Se true, mantém as colunas normais na resposta tabular, mas salva automaticamente o conteúdo de campos LOB (CLOB, BLOB, TEXT, XML, JSON grandes) em arquivos temporários individuais, substituindo o valor na tabela pelo caminho do arquivo.")),
+		mcp.WithString("file_path", mcp.Description("Caminho customizado de destino para salvar o arquivo (opcional). Se omitido, um arquivo temporário seguro é gerado automaticamente no diretório temp do sistema.")),
+		mcp.WithNumber("lob_threshold_bytes", mcp.Description("Tamanho mínimo em bytes (default: 2048) para considerar um campo como LOB quando 'lob_to_file' estiver ativo.")),
 	)
 	s.mcpServer.AddTool(execQueryTool, s.handleExecuteQuery)
 
@@ -391,6 +404,50 @@ func resolveQueryFormat(format string, csvSeparator string) string {
 	return format
 }
 
+func parseBoolArg(val interface{}) bool {
+	if val == nil {
+		return false
+	}
+	switch v := val.(type) {
+	case bool:
+		return v
+	case string:
+		s := strings.ToLower(strings.TrimSpace(v))
+		return s == "true" || s == "1" || s == "yes"
+	case float64:
+		return v != 0
+	case int:
+		return v != 0
+	}
+	return false
+}
+
+// SavedQueryResponse representa o payload JSON retornado quando save_to_file=true.
+type SavedQueryResponse struct {
+	SavedToFile bool     `json:"saved_to_file"`
+	FilePath    string   `json:"file_path"`
+	FileSize    string   `json:"file_size"`
+	RowCount    int      `json:"row_count"`
+	Columns     []string `json:"columns"`
+	Format      string   `json:"format"`
+	Preview     string   `json:"preview"`
+	Hint        string   `json:"hint"`
+}
+
+func buildOutputPreview(output string, maxChars int) string {
+	if maxChars <= 0 {
+		maxChars = 500
+	}
+	if len(output) <= maxChars {
+		return output
+	}
+	preview := output[:maxChars]
+	if lastNL := strings.LastIndex(preview, "\n"); lastNL > maxChars/2 {
+		preview = preview[:lastNL]
+	}
+	return preview + "\n... (primeiros registros)"
+}
+
 func (s *Server) handleExecuteQuery(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	dbAlias, _ := req.Params.Arguments["db_alias"].(string)
 	query, _ := req.Params.Arguments["query"].(string)
@@ -398,6 +455,14 @@ func (s *Server) handleExecuteQuery(ctx context.Context, req mcp.CallToolRequest
 
 	csvSeparator := parseStringArg(req.Params.Arguments, "csv_separator", "csv_delimiter", "separator", "delimiter")
 	format = resolveQueryFormat(format, csvSeparator)
+
+	saveToFile := parseBoolArg(req.Params.Arguments["save_to_file"])
+	lobToFile := parseBoolArg(req.Params.Arguments["lob_to_file"])
+	customFilePath := parseStringArg(req.Params.Arguments, "file_path")
+	lobThreshold := parseLimit(req.Params.Arguments["lob_threshold_bytes"], db.DefaultLOBThresholdBytes)
+	if lobThreshold <= 0 {
+		lobThreshold = db.DefaultLOBThresholdBytes
+	}
 
 	if dbAlias == "" || query == "" {
 		return mcp.NewToolResultError("Os argumentos 'db_alias' e 'query' são obrigatórios."), nil
@@ -452,17 +517,63 @@ func (s *Server) handleExecuteQuery(ctx context.Context, req mcp.CallToolRequest
 	}
 	defer dbConn.Close()
 
-	queryRes, err := s.exec.ExecuteQuery(dbConn, query, limit, offset)
+	queryRes, err := s.exec.ExecuteQueryWithOptions(dbConn, query, db.ExecuteQueryOptions{
+		Limit:        limit,
+		Offset:       offset,
+		ExtractLOBs:  lobToFile,
+		LOBThreshold: lobThreshold,
+		TempManager:  s.tempMgr,
+	})
 	if err != nil {
 		errData, _ := json.Marshal([]map[string]string{{"error": err.Error()}})
 		return mcp.NewToolResultText(string(errData)), nil
 	}
 
+	return s.processQueryExecutionResult(dbAlias, queryRes, format, csvSeparator, limit, saveToFile, customFilePath)
+}
+
+func (s *Server) processQueryExecutionResult(
+	dbAlias string,
+	queryRes *db.QueryResult,
+	format string,
+	csvSeparator string,
+	limit int,
+	saveToFile bool,
+	customFilePath string,
+) (*mcp.CallToolResult, error) {
 	output, err := formatters.FormatOutput(queryRes.Rows, format, queryRes.Columns, formatters.FormatOptions{
 		CSVSeparator: csvSeparator,
 	})
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Erro ao formatar resposta: %v", err)), nil
+	}
+
+	if saveToFile {
+		mgr := s.tempMgr
+		if mgr == nil {
+			mgr = tempfile.NewManager()
+		}
+		fileInfo, err := mgr.CreateQueryResultFile(dbAlias, format, output, customFilePath)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Erro ao salvar resultado em arquivo temporário: %v", err)), nil
+		}
+
+		resp := SavedQueryResponse{
+			SavedToFile: true,
+			FilePath:    fileInfo.FilePath,
+			FileSize:    fileInfo.FormattedSize,
+			RowCount:    queryRes.ReturnedCount,
+			Columns:     queryRes.Columns,
+			Format:      format,
+			Preview:     buildOutputPreview(output, 500),
+			Hint:        "O resultado foi salvo no disco para economizar tokens. Para inspecionar trechos específicos, utilize a ferramenta local de leitura de arquivos com paginação de linhas (ex: view_file com StartLine e EndLine).",
+		}
+
+		data, err := json.MarshalIndent(resp, "", "  ")
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Erro ao serializar metadados do arquivo salvo: %v", err)), nil
+		}
+		return mcp.NewToolResultText(string(data)), nil
 	}
 
 	mdSummary, plainSummary := buildSummaryMessage(queryRes, limit)

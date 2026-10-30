@@ -19,6 +19,10 @@ Este é um servidor MCP (Model Context Protocol) de alto desempenho escrito em *
   - `list_routines`: Lista procedures, functions, triggers e packages (Oracle) com linguagem, status de compilação, datas de criação/modificação, e detalhes de triggers (`parent_table`, `trigger_event`, `trigger_timing`), filtrando automaticamente triggers internas no PostgreSQL.
   - `get_routine_source`: Extrai o código-fonte integral de procedures, functions, triggers e packages (especificação + body). Retorna erro claro e explicativo se o objeto estiver criptografado (`WITH ENCRYPTION` no SQL Server), `WRAPPED` no Oracle ou sem permissão de leitura.
 - **Múltiplos Formatos de Saída e Paginação:** Suporte a formatação em `md` (markdown tables - padrão no `execute_query`), `json` (padrão nas demais tools de listagem), `xml`, `csv` e `toon` (formato denso otimizado para IA). No formato `csv`, permite definir o delimitador de colunas via parâmetro `csv_separator` (padrão `,`, suportando `;`, `\t`, `|`, etc.). Permite controle de limite e paginação via parâmetros `limit` (padrão 500 linhas, `0` para sem limite), `offset` (linhas a pular) e `page` (número da página, 1-based). Emite aviso explícito e inteligente de paginação/truncamento (`truncated: true`).
+- **Suporte Inteligente a LOBs e Exportação para Arquivos Temporários (Economia de Tokens):** A tool `execute_query` oferece duas estratégias para evitar explosão de contexto ao lidar com cargas volumosas ou campos LOB (`CLOB`, `BLOB`, `TEXT`, `LONGTEXT`, `XML`, `JSON`, `BYTEA`, `VARCHAR(MAX)`):
+  - `lob_to_file: true`: Mantém os campos escalares na tabela retornada à IA, mas extrai automaticamente colunas LOB ou campos grandes (`>= lob_threshold_bytes`, padrão `2048` bytes) para arquivos temporários individuais com extensão detectada automaticamente (`.xml`, `.json`, `.bin`, `.txt`), substituindo o valor na célula por `[LOB salvo em: <caminho> (<tamanho>)]`.
+  - `save_to_file: true`: Grava todo o resultado formatado da consulta em um arquivo temporário (ou no caminho informado em `file_path`) e retorna apenas um resumo JSON com caminho do arquivo, tamanho, contagem de linhas, colunas e um preview inicial.
+  - Conta com limpeza automática (*housekeeping*) de arquivos temporários com mais de 24 horas.
 - **Descrições Dinâmicas:** A IA é capaz de ver os bancos e modos disponíveis antes de qualquer chamada.
 - **Gerenciador de Conexões Interativo:** Adicione senhas e bancos via terminal de forma segura sem mexer em arquivos JSON e totalmente fora do alcance da IA.
 - **Modos de Segurança Avançados:** Defina exatamente o que a IA pode fazer em cada banco. Protegido por um parser de AST/tokens SQL que evita bypasses com comentários ou múltiplas linhas.
@@ -197,6 +201,7 @@ go test ./... -v
 - `pkg/db/`: Abstração de banco com drivers 100% nativos em Go (`go-ora/v2`, `go-mssqldb`, `pgx/v5`, `go-sql-driver/mysql`).
 - `pkg/security/`: Parser de AST/tokens SQL para validação de segurança (`readonly`, `normal`, `teste`).
 - `pkg/formatters/`: Conversores de resultado (`json`, `xml`, `md`, `csv`, `toon`).
+- `pkg/tempfile/`: Gerenciador de arquivos temporários, detecção inteligente de extensão de LOBs e limpeza automática (*housekeeping*).
 - `pkg/mcp/`: Manipuladores de requisições do protocolo MCP.
 
 ---

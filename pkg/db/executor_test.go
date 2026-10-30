@@ -5,12 +5,19 @@ import (
 	"database/sql/driver"
 	"fmt"
 	"io"
+	"os"
+	"strings"
 	"testing"
+
+	"github.com/rogick/db-explorer-mcp/pkg/tempfile"
 )
 
 type mockDriver struct{}
 
 func (d *mockDriver) Open(name string) (driver.Conn, error) {
+	if name == "lob_test" {
+		return &mockLobConn{}, nil
+	}
 	total := 150
 	if name == "short" {
 		total = 50
@@ -203,5 +210,115 @@ func TestExecuteQuery_ZeroLimit(t *testing.T) {
 	}
 	if res.Truncated {
 		t.Errorf("Truncated esperado false, obteve true")
+	}
+}
+
+type mockLobConn struct{}
+
+func (c *mockLobConn) Prepare(query string) (driver.Stmt, error) {
+	return nil, fmt.Errorf("prepare não implementado")
+}
+func (c *mockLobConn) Close() error              { return nil }
+func (c *mockLobConn) Begin() (driver.Tx, error) { return nil, fmt.Errorf("tx não implementada") }
+func (c *mockLobConn) Query(query string, args []driver.Value) (driver.Rows, error) {
+	return &mockLobRows{}, nil
+}
+
+type mockLobRows struct {
+	current int
+}
+
+func (r *mockLobRows) Columns() []string {
+	return []string{"id", "tipo_evento", "payload_xml", "clob_curto", "blob_binario"}
+}
+
+func (r *mockLobRows) ColumnTypeDatabaseTypeName(index int) string {
+	switch index {
+	case 0:
+		return "NUMBER"
+	case 1:
+		return "VARCHAR2"
+	case 2:
+		return "VARCHAR2"
+	case 3:
+		return "CLOB"
+	case 4:
+		return "BLOB"
+	}
+	return "VARCHAR2"
+}
+
+func (r *mockLobRows) Close() error { return nil }
+
+func (r *mockLobRows) Next(dest []driver.Value) error {
+	if r.current >= 2 {
+		return io.EOF
+	}
+	r.current++
+	dest[0] = int64(1022 + r.current)
+	dest[1] = "NFE_EMISSAO"
+	dest[2] = fmt.Sprintf("<NFe><id>%d</id><dados>%s</dados></NFe>", r.current, strings.Repeat("X", 2500))
+	dest[3] = `{"resumo": "campo CLOB mesmo pequeno"}`
+	dest[4] = []byte{0x89, 0x50, 0x4E, 0x47, 0x00, 0x01, 0x02}
+	return nil
+}
+
+func TestExecuteQueryWithOptions_ExtractLOBs(t *testing.T) {
+	dbConn, err := sql.Open("mock_db", "lob_test")
+	if err != nil {
+		t.Fatalf("Erro ao abrir mock_db: %v", err)
+	}
+	defer dbConn.Close()
+
+	tmpDir := t.TempDir()
+	tempMgr := tempfile.NewManagerWithDir(tmpDir)
+	exec := NewExecutor()
+
+	res, err := exec.ExecuteQueryWithOptions(dbConn, "SELECT * FROM eventos", ExecuteQueryOptions{
+		Limit:        100,
+		Offset:       0,
+		ExtractLOBs:  true,
+		LOBThreshold: 2048,
+		TempManager:  tempMgr,
+	})
+	if err != nil {
+		t.Fatalf("Erro em ExecuteQueryWithOptions: %v", err)
+	}
+
+	if len(res.Rows) != 2 {
+		t.Fatalf("Esperado 2 linhas, obteve %d", len(res.Rows))
+	}
+
+	// Coluna escalar comum deve permanecer intacta
+	if res.Rows[0]["tipo_evento"] != "NFE_EMISSAO" {
+		t.Errorf("Coluna tipo_evento foi alterada indevidamente: %v", res.Rows[0]["tipo_evento"])
+	}
+
+	// payload_xml (> 2048 bytes) deve ter sido extraído para arquivo .xml
+	xmlRef, ok := res.Rows[0]["payload_xml"].(string)
+	if !ok || !strings.HasPrefix(xmlRef, "[LOB salvo em: ") || !strings.Contains(xmlRef, ".xml") {
+		t.Errorf("Referência LOB para payload_xml inesperada: %v", res.Rows[0]["payload_xml"])
+	}
+
+	// clob_curto (tipo CLOB dedicado) deve ter sido extraído para arquivo .json
+	clobRef, ok := res.Rows[0]["clob_curto"].(string)
+	if !ok || !strings.HasPrefix(clobRef, "[LOB salvo em: ") || !strings.Contains(clobRef, ".json") {
+		t.Errorf("Referência LOB para clob_curto inesperada: %v", res.Rows[0]["clob_curto"])
+	}
+
+	// blob_binario (tipo BLOB / binário) deve ter sido extraído para arquivo .bin
+	blobRef, ok := res.Rows[0]["blob_binario"].(string)
+	if !ok || !strings.HasPrefix(blobRef, "[LOB salvo em: ") || !strings.Contains(blobRef, ".bin") {
+		t.Errorf("Referência LOB para blob_binario inesperada: %v", res.Rows[0]["blob_binario"])
+	}
+
+	// Devem ter sido gerados 6 arquivos LOB (3 colunas x 2 linhas)
+	if len(res.LobFiles) != 6 {
+		t.Errorf("Esperado 6 arquivos LOB gerados, obteve %d", len(res.LobFiles))
+	}
+	for _, f := range res.LobFiles {
+		if _, err := os.Stat(f); err != nil {
+			t.Errorf("Arquivo LOB %s não existe no disco: %v", f, err)
+		}
 	}
 }
